@@ -598,7 +598,8 @@ def mainPage() {
             section("4. System Control") {
    
                 input "masterEnable", "bool", title: "🟢 Enable System Logic?", defaultValue: true, required: true
-                input "triggerDelay", "number", title: "⏱️ Trigger Delay (Min) - Prevents Flapping", defaultValue: 0, required: true
+                paragraph "<small><b>Trigger Delay:</b> The 'Cooldown' period after an alarm triggers before it can trigger again. Prevents notification spam during a lingering storm.<br>👉 <b>Recommended:</b> 30-60 Minutes.</small>"
+                input "triggerDelay", "number", title: "⏱️ Trigger Delay (Min)", defaultValue: 0, required: true
             }
             section("5. Launch") {
                 if (weatherDevice) {
@@ -687,6 +688,7 @@ state.forecast.flood.status == "PRE-ALERT" || state.forecast.frost.status == "PR
                 return "${(minutes/60).toInteger()}h ${minutes%60}m"
             }
             
+            // Prediction Timers
             def sTime = (state.timeToStorm ?: -1).toDouble().round(0).toInteger()
             def fTime = (state.timeToFlood ?: -1).toDouble().round(0).toInteger()
             def frTime = (state.timeToFrost ?: -1).toDouble().round(0).toInteger()
@@ -698,6 +700,23 @@ state.forecast.flood.status == "PRE-ALERT" || state.forecast.frost.status == "PR
             def sDisp = sTime > 0 ? formatTime(sTime) : "0:00"
             def fDisp = fTime > 0 ? formatTime(fTime) : "0:00"
             def frDisp = frTime > 0 ? formatTime(frTime) : "0:00"
+            
+            // Cooldown Logic
+            def getCooldown = { key ->
+                def last = state.lastTriggerTime ? state.lastTriggerTime[key] : 0
+                def delay = (triggerDelay ?: 0) * 60000
+                def nextCall = last + delay
+                def remain = nextCall - now()
+                if (remain > 0) return (remain / 60000).toInteger()
+                return 0
+            }
+            def sCool = getCooldown("storm")
+            def fCool = getCooldown("flood")
+            def frCool = getCooldown("frost")
+            
+            def sCoolDisp = sCool > 0 ? "⛔ ${sCool}m" : "<span style='color:#4caf50;'>READY</span>"
+            def fCoolDisp = fCool > 0 ? "⛔ ${fCool}m" : "<span style='color:#4caf50;'>READY</span>"
+            def frCoolDisp = frCool > 0 ? "⛔ ${frCool}m" : "<span style='color:#4caf50;'>READY</span>"
 
             paragraph """
             <div style='padding:20px; background:linear-gradient(135deg, ${statusColor} 0%, #263238 100%); color:white; border-radius:12px; text-align:center; box-shadow: 0 8px 20px rgba(0,0,0,0.3);'>
@@ -705,17 +724,23 @@ state.forecast.flood.status == "PRE-ALERT" || state.forecast.frost.status == "PR
                 <div style='color:#b0bec5; font-size:0.9em; font-style:italic; margin-bottom:15px; letter-spacing:1px;'>Predict the surge. Control the outcome.</div>
                 
                 <div style='background:rgba(0,0,0,0.2); border-radius:8px; padding:10px; margin-bottom:15px; display:flex; justify-content:space-around;'>
-                    <div style='text-align:center;'>
-                        <div style='font-size:0.7em; color:#ef5350;'>STORM ${sLabel}</div>
+                    <div style='text-align:center; width:33%;'>
+                        <div style='font-size:0.7em; color:#ef5350; font-weight:bold;'>STORM</div>
+                        <div style='font-size:0.6em; color:#ef9a9a;'>${sLabel}</div>
                         <div style='font-size:1.1em; font-weight:bold;'>⏳ ${sDisp}</div>
+                        <div style='margin-top:5px; font-size:0.7em; border-top:1px solid rgba(255,255,255,0.1); padding-top:2px;'>NEXT CALL:<br>${sCoolDisp}</div>
                     </div>
-                    <div style='text-align:center; border-left:1px solid rgba(255,255,255,0.1); padding-left:15px;'>
-                        <div style='font-size:0.7em; color:#42a5f5;'>FLOOD ${fLabel}</div>
+                    <div style='text-align:center; width:33%; border-left:1px solid rgba(255,255,255,0.1);'>
+                        <div style='font-size:0.7em; color:#42a5f5; font-weight:bold;'>FLOOD</div>
+                        <div style='font-size:0.6em; color:#90caf9;'>${fLabel}</div>
                         <div style='font-size:1.1em; font-weight:bold;'>⏳ ${fDisp}</div>
+                        <div style='margin-top:5px; font-size:0.7em; border-top:1px solid rgba(255,255,255,0.1); padding-top:2px;'>NEXT CALL:<br>${fCoolDisp}</div>
                     </div>
-                    <div style='text-align:center; border-left:1px solid rgba(255,255,255,0.1); padding-left:15px;'>
-                        <div style='font-size:0.7em; color:#90a4ae;'>FROST ${frLabel}</div>
+                    <div style='text-align:center; width:33%; border-left:1px solid rgba(255,255,255,0.1);'>
+                        <div style='font-size:0.7em; color:#90a4ae; font-weight:bold;'>FROST</div>
+                        <div style='font-size:0.6em; color:#cfd8dc;'>${frLabel}</div>
                         <div style='font-size:1.1em; font-weight:bold;'>⏳ ${frDisp}</div>
+                        <div style='margin-top:5px; font-size:0.7em; border-top:1px solid rgba(255,255,255,0.1); padding-top:2px;'>NEXT CALL:<br>${frCoolDisp}</div>
                     </div>
                 </div>
 
@@ -1760,8 +1785,7 @@ def checkTriggers() {
     def hardFreeze = (state.lastT ?: 99) <= (frostTempThreshold ?: 37)
     def wetBulbFreeze = (state.wetBulb ?: 99) <= 32.0
     boolean activeFrost = (state.testFrost || (!state.testPredFrost && (state.frostScore >= frLim) || hardFreeze || wetBulbFreeze))
-    boolean frostOffCondition = !state.testFrost && (state.frostScore < (frLim - hyst)) && 
-    !hardFreeze && !wetBulbFreeze
+    boolean frostOffCondition = !state.testFrost && (state.frostScore < (frLim - hyst)) && !hardFreeze && !wetBulbFreeze
     if (activeFrost) {
         if (canTrigger("frost") || (frostSwitch && frostSwitch.currentSwitch == "on")) {
         
