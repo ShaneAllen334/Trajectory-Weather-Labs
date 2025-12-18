@@ -598,8 +598,7 @@ def mainPage() {
             section("4. System Control") {
    
                 input "masterEnable", "bool", title: "🟢 Enable System Logic?", defaultValue: true, required: true
-                paragraph "<small><b>Trigger Delay:</b> The 'Cooldown' period after an alarm triggers before it can trigger again. Prevents notification spam during a lingering storm.<br>👉 <b>Recommended:</b> 30-60 Minutes.</small>"
-                input "triggerDelay", "number", title: "⏱️ Trigger Delay (Min)", defaultValue: 0, required: true
+                input "triggerDelay", "number", title: "⏱️ Trigger Delay (Min) - Prevents Flapping", defaultValue: 0, required: true
             }
             section("5. Launch") {
                 if (weatherDevice) {
@@ -1800,9 +1799,7 @@ def checkTriggers() {
         }
     } else if (frostOffCondition) { 
         def timeActive = now() - (state.activeEventStart['frost'] ?: 0)
-        if (frostSwitch && 
-        frostSwitch.currentSwitch == "on" && timeActive > minRunTime) 
- 
+        if (frostSwitch && frostSwitch.currentSwitch == "on" && timeActive > minRunTime) 
         { 
             frostSwitch?.off();
             logTrigger("FROST", false) 
@@ -1861,6 +1858,9 @@ def configurePage() {
         }
         section("4. Controls") {
             input "masterEnable", "bool", title: "🟢 Enable System Logic?", defaultValue: true, required: true
+            
+            paragraph "<div style='font-size:0.8em; color:#555; background:#f5f5f5; padding:8px; border-radius:5px; margin-bottom:10px; border:1px solid #e0e0e0;'><b>ℹ️ TRIGGER DELAY EXPLAINED:</b><br>This creates a mandatory 'Cooldown Period' after an alert triggers. During this time, the specific alarm cannot trigger again, even if conditions remain critical.<br>• <b>Purpose:</b> Prevents 'flapping' (rapid on/off switching) and notification spam during lingering storms.<br>• <b>Recommendation:</b> Set to <b>30-60 Minutes</b> for stable operation.</div>"
+            
             input "triggerDelay", "number", title: "⏱️ Trigger Delay (Min)", defaultValue: 0, required: true
         }
     }
