@@ -10,10 +10,12 @@ definition(
     author: "ShaneAllen",
     description: "Professional-grade meteorological engine using Linear Trend Extrapolation and Forensic DNA to predict storms, floods, and frost 1 hour ahead.",
     category: "Convenience",
+    // [NEW] Search Terms for Hubitat Package Manager Discovery
+    tags: "Weather, Ecowitt, Local, Storm, Flood, Frost, Forecasting, Physics, PWS",
     // [NEW] HPM COMPATIBILITY PARAMETERS
     // UPDATE THESE URLS TO MATCH YOUR GITHUB REPO LOCATION
-    importUrl: "https://github.com/ShaneAllen334/Trajectory-Weather-Labs/blob/main/Trajectory%20Weather%20Labs%20V5.txt",
-    documentationLink: "",
+    importUrl: "https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/TrajectoryWeatherLabs.groovy",
+    documentationLink: "https://github.com/YOUR_GITHUB_USER/YOUR_REPO/blob/main/README.md",
     iconUrl: "", iconX2Url: ""
 )
 
