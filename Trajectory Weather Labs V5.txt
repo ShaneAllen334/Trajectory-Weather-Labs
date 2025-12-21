@@ -8,12 +8,9 @@ definition(
     name: "Trajectory Weather Labs",
     namespace: "user",
     author: "ShaneAllen",
-    description: "Professional-grade meteorological engine using Linear Trend Extrapolation and Forensic DNA to predict storms, floods, and frost 1 hour ahead.",
+    description: "Professional-grade meteorological engine using Linear Trend Extrapolation and Forensic DNA to predict storms, floods, and freezes 1 hour ahead.",
     category: "Convenience",
-    // [NEW] Search Terms for Hubitat Package Manager Discovery
-    tags: "Weather, Ecowitt, Local, Storm, Flood, Frost, Forecasting, Physics, PWS",
-    // [NEW] HPM COMPATIBILITY PARAMETERS
-    // UPDATE THESE URLS TO MATCH YOUR GITHUB REPO LOCATION
+    tags: "Weather, Ecowitt, Local, Storm, Flood, Freeze, Forecasting, Physics, PWS",
     importUrl: "https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/TrajectoryWeatherLabs.groovy",
     documentationLink: "https://github.com/YOUR_GITHUB_USER/YOUR_REPO/blob/main/README.md",
     iconUrl: "", iconX2Url: ""
@@ -23,16 +20,12 @@ preferences {
     page(name: "mainPage")
     page(name: "configurePage")
     page(name: "calibrationPage")
-    // Sub-Pages for Calibration
     page(name: "stormConfigPage")
     page(name: "floodConfigPage")
-    page(name: "frostConfigPage")
-    // [NEW] Regional Physics Page
+    page(name: "freezeConfigPage") 
     page(name: "regionConfigPage")
     page(name: "weightConfigPage")
-  
     page(name: "systemConfigPage")
-    
     page(name: "trustPage")
     page(name: "predictiveMathPage")
     page(name: "forensicMathPage")
@@ -52,16 +45,15 @@ def updated() {
     unschedule() 
     initialize()
     
-    // [NEW] Dynamic Polling Interval
+    // Dynamic Polling Interval
     def interval = (pollInterval ?: "15").toInteger()
     if (interval == 1) runEvery1Minute("pollWeatherStation")
     else if (interval == 5) runEvery5Minutes("pollWeatherStation")
     else if (interval == 10) runEvery10Minutes("pollWeatherStation")
     else if (interval == 15) runEvery15Minutes("pollWeatherStation")
     else if (interval == 30) runEvery30Minutes("pollWeatherStation")
-    else schedule("0 */${interval} * * * ?", "pollWeatherStation") // 45, 60
+    else schedule("0 */${interval} * * * ?", "pollWeatherStation") 
     
-    // Run immediately
     runIn(2, "pollWeatherStation") 
 }
 
@@ -72,15 +64,13 @@ def uninstalled() {
 }
 
 def initialize() {
-    // 1. Initialize PAI
     if (state.paiStorm == null) { 
-        state.paiStorm=100;
-        state.paiStormWhy="Nominal"; 
+        state.paiStorm=100; state.paiStormWhy="Nominal"; 
         state.paiFlood=100; state.paiFloodWhy="Nominal"; 
-        state.paiFrost=100; state.paiFrostWhy="Nominal" 
+        state.paiFreeze=100; state.paiFreezeWhy="Nominal" 
     }
     
-    // 2. Initialize History Arrays
+    // History Arrays
     if (!state.histTemp) state.histTemp=[]
     if (!state.histHum) state.histHum=[]
     if (!state.histGust) state.histGust=[]
@@ -93,27 +83,27 @@ def initialize() {
     if (!state.histBat) state.histBat=[]
     if (!state.histLux) state.histLux=[]
     if (!state.anomalies) state.anomalies=[]
-    
-    // [NEW] Score History for Countdown Timers
     if (!state.histStormScore) state.histStormScore=[]
     if (!state.histFloodScore) state.histFloodScore=[]
-    if (!state.histFrostScore) state.histFrostScore=[]
+    if (!state.histFreezeScore) state.histFreezeScore=[]
     
-    // 3. Initialize Operational Flags
+    // Operational Flags
     if (!state.alertHistory) state.alertHistory = []
-    if (!state.activeEventStart) state.activeEventStart = [storm:0, flood:0, frost:0, pStorm:0, pFlood:0, pFrost:0]
+    if (!state.activeEventStart) state.activeEventStart = [storm:0, flood:0, freeze:0, pStorm:0, pFlood:0, pFreeze:0]
+    if (!state.triggerStats) state.triggerStats = [storm:0, flood:0, freeze:0, pStorm:0, pFlood:0, pFreeze:0]
+    if (state.globalMuteExpires == null) state.globalMuteExpires = 0
     
-    // 4. Initialize Physics Variables
+    // Physics Variables
     if (state.dayHighTemp == null) state.dayHighTemp = -999
     if (state.dayLowTemp == null) state.dayLowTemp = 999
     if (state.dayHighGust == null) state.dayHighGust = 0
     if (state.dayHighWind == null) state.dayHighWind = 0
     if (state.lockedGust == null) state.lockedGust = 0.0
     if (state.lockedWind == null) state.lockedWind = 0.0
-  
+    if (state.lockedRain == null) state.lockedRain = 0.0
     if (state.wetBulb == null) state.wetBulb = 0.0
-    
-    // 5. Initialize Weights (Prevent Calculation Errors)
+   
+    // Weights
     if (state.wGustWeight == null) state.wGustWeight = 0
     if (state.wSpeedWeight == null) state.wSpeedWeight = 0
     if (state.sRainWeight == null) state.sRainWeight = 0
@@ -130,24 +120,25 @@ def initialize() {
     if (state.fDirWeight == null) state.fDirWeight = 0
 
     // Forecast Map
-    if (!state.forecast) state.forecast = [storm:[status:"STABLE", color:"#43a047"], flood:[status:"STABLE", color:"#43a047"], frost:[status:"STABLE", color:"#43a047"], predT:0, predH:0, predD:0, predW:0, predG:0, predR:0]
+    if (!state.forecast) {
+          state.forecast = [storm:[status:"STABLE", color:"#43a047"], flood:[status:"STABLE", color:"#43a047"], freeze:[status:"STABLE", color:"#43a047"], predT:0, predH:0, predD:0, predW:0, predG:0, predR:0]
+    } else {
+        if (!state.forecast.freeze) state.forecast.freeze = [status:"STABLE", color:"#43a047"]
+        if (!state.forecast.storm) state.forecast.storm = [status:"STABLE", color:"#43a047"]
+        if (!state.forecast.flood) state.forecast.flood = [status:"STABLE", color:"#43a047"]
+    }
     
-    // Timers
-    if (!state.lastTriggerTime) state.lastTriggerTime = [storm:0, flood:0, frost:0, pStorm:0, pFlood:0, pFrost:0]
-
+    if (!state.lastTriggerTime) state.lastTriggerTime = [storm:0, flood:0, freeze:0, pStorm:0, pFlood:0, pFreeze:0]
     state.narrative = "INITIALIZING SENSORS..."
     state.lightningStale = false 
     state.stormOverrideActive = false
     
     // Test Mode Resets
     state.testMode=false;
-    state.testStorm=false; state.testFlood=false; state.testFrost=false; state.simulateScan=false; 
-    state.testPredStorm=false; state.testPredFlood=false; state.testPredFrost=false;
-    // Rate Initialization
-    state.tRate = 0.0; state.hRate = 0.0;
-    state.dRate = 0.0;
-    state.wRate = 0.0;
-    state.gRate = 0.0
+    state.testStorm=false; state.testFlood=false; state.testFreeze=false; state.simulateScan=false; 
+    state.testPredStorm=false; state.testPredFlood=false; state.testPredFreeze=false;
+    
+    state.tRate = 0.0; state.hRate = 0.0; state.dRate = 0.0; state.wRate = 0.0; state.gRate = 0.0
     
     unsubscribe()
     try {
@@ -157,8 +148,7 @@ def initialize() {
                 subscribe(weatherDevice, "windGust", pollWeatherStation)
                 subscribe(weatherDevice, "windSpeed", pollWeatherStation)
             }
- 
-           if(!excludeRain) subscribe(weatherDevice, "rainRate", pollWeatherStation)
+            if(!excludeRain) subscribe(weatherDevice, "rainRate", pollWeatherStation)
             subscribe(weatherDevice, "humidity", pollWeatherStation)
         }
         
@@ -166,26 +156,19 @@ def initialize() {
              subscribe(extLightning, "lightning", pollWeatherStation)
              subscribe(extLightning, "lightningCount", pollWeatherStation)
              subscribe(extLightning, "lightningDistance", pollWeatherStation)
-  
-       } else if (weatherDevice && !excludeLightning) {
+        } else if (weatherDevice && !excludeLightning) {
              subscribe(weatherDevice, "lightning", pollWeatherStation)
              subscribe(weatherDevice, "lightning_num", pollWeatherStation)
              subscribe(weatherDevice, "lightningDistance", pollWeatherStation)
         }
        
-        if(luxSensor && !excludeLux) 
-             subscribe(luxSensor, "illuminance", pollWeatherStation)
-  
-    } catch(e) { 
-        log.warn "Subs Error: ${e}" 
-    }
-    
+        if(luxSensor && !excludeLux) subscribe(luxSensor, "illuminance", pollWeatherStation)
+    } catch(e) { log.warn "Subs Error: ${e}" }
     schedule("0 0 0 * * ?", resetDailyStats)
 }
 
 def resetDailyStats() { 
-    state.dayHighTemp = -999;
-    state.dayLowTemp = 999;
+    state.dayHighTemp = -999; state.dayLowTemp = 999;
     state.dayHighGust = 0; state.dayHighWind = 0
 }
 
@@ -193,54 +176,41 @@ def resetDailyStats() {
 // 2. DATA HELPERS
 // =================================================================================================
 
-// *** CRITICAL HELPER: Weight Auto-Tuner ***
-// Defaults sum to 100.
 def getTunedWeight(type) {
     if (type == "gust") { return (weightGust ?: 15) }
     if (type == "wind") { return (weightWind ?: 5) }
     if (type == "rain") { return (weightStormRain ?: 10) }
     if (type == "dew")  { return (weightDew ?: 5) }
     if (type == "vector") { return (weightWindDir ?: 10) }
-    
     if (type == "light") return (weightLight ?: 20)
     if (type == "prox") return (weightProx ?: 15)
     if (type == "dark") return (weightDarkSky ?: 20)
-    
     if (type == "runoff") return (weightRunoff ?: 50)
     if (type == "sat") return (weightSat ?: 50)
-    
-    if (type == "ftemp") return (weightFrostTemp ?: 40)
-    if (type == "fhum") return (weightFrostHum ?: 30)
+    if (type == "ftemp") return (weightFreezeTemp ?: 40)
+    if (type == "fhum") return (weightFreezeHum ?: 30)
     if (type == "fcold") return (weightColdAdv ?: 20)
     if (type == "fcrash") return (weightCrash ?: 10)
     return 0
 }
 
-def getUSStates() { 
-    return ["Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa","Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts","Michigan","Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada","New Hampshire","New Jersey","New Mexico","New York","North Carolina","North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania","Rhode Island","South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont","Virginia","Washington","West Virginia","Wisconsin","Wyoming"] 
-}
+def getUSStates() { return ["Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa","Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts","Michigan","Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada","New Hampshire","New Jersey","New Mexico","New York","North Carolina","North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania","Rhode Island","South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont","Virginia","Washington","West Virginia","Wisconsin","Wyoming"] }
 
 def getClimateProfile(val) {
-    def p = [gust:35, wind:20, rain:1.0, dew:65, soil:"Silt", flood:2.0, freeze:37, hum:70, desc:"Standard Mixed", stormPct:60, floodPct:70, frostPct:60]
-    
+    def p = [gust:35, wind:20, rain:1.0, dew:65, soil:"Silt", flood:2.0, freeze:37, hum:70, desc:"Standard Mixed", stormPct:60, floodPct:70, freezePct:60]
     if (["Florida","Louisiana","Mississippi","Alabama","Georgia","South Carolina","Texas"].contains(val)) {
-        p.gust = 45;
-        p.wind = 25; p.rain = 2.0; p.flood = 3.0; p.dew = 72; p.soil = "Sand"; p.freeze = 35;
-        p.desc = "Tropical"; p.stormPct = 70; p.frostPct = 50
+        p.gust = 45; p.wind = 25; p.rain = 2.0; p.flood = 3.0; p.dew = 72; p.soil = "Sand"; p.freeze = 35;
+        p.desc = "Tropical"; p.stormPct = 70; p.freezePct = 50
     } else if (["Oklahoma","Kansas","Nebraska","Iowa","Missouri","Illinois"].contains(val)) {
-        p.gust = 40;
-        p.wind = 25; p.rain = 1.5; p.dew = 68; p.soil = "Clay"; p.freeze = 36; p.desc = "Convective";
+        p.gust = 40; p.wind = 25; p.rain = 1.5; p.dew = 68; p.soil = "Clay"; p.freeze = 36; p.desc = "Convective";
         p.floodPct = 75
     } else if (["Minnesota","North Dakota","Wisconsin","Michigan","New York","Maine"].contains(val)) {
-        p.gust = 35;
-        p.wind = 15; p.rain = 1.0; p.dew = 55; p.soil = "Silt"; p.freeze = 39; p.hum = 60;
-        p.desc = "Arctic"; p.frostPct = 70
+        p.gust = 35; p.wind = 15; p.rain = 1.0; p.dew = 55; p.soil = "Silt"; p.freeze = 39; p.hum = 60;
+        p.desc = "Arctic"; p.freezePct = 70
     } else if (["Arizona","New Mexico","Nevada","Utah"].contains(val)) {
-        p.gust = 40;
-        p.wind = 20; p.rain = 0.5; p.flood = 1.0; p.dew = 50; p.soil = "Sand"; p.hum = 40;
+        p.gust = 40; p.wind = 20; p.rain = 0.5; p.flood = 1.0; p.dew = 50; p.soil = "Sand"; p.hum = 40;
         p.desc = "Arid"; p.floodPct = 50
     }
-    
     if (mountLocation == "ground") {
         p.gust = (p.gust * 0.8).toDouble().round(1)
         p.wind = (p.wind * 0.8).toDouble().round(1)
@@ -251,9 +221,7 @@ def getClimateProfile(val) {
 
 def calculateFullHeatIndex(t, h) {
     if (t == null || h == null) return 0.0
-    def T = t.toDouble()
-    def R = h.toDouble()
-  
+    def T = t.toDouble(); def R = h.toDouble()
     def hi = 0.5 * (T + 61.0 + ((T - 68.0) * 1.2) + (R * 0.094))
     if (hi > 80) {
         hi = -42.379 + 2.04901523 * T + 10.14333127 * R - 0.22475541 * T * R - 0.00683783 * T * T - 0.05481717 * R * R + 0.00122874 * T * T * R + 0.00085282 * T * R * R - 0.00000199 * T * T * R * R
@@ -266,11 +234,7 @@ def calculateFullHeatIndex(t, h) {
 def calculateWetBulb(tF, rh) {
     if (tF == null || rh == null) return tF
     def t = (tF - 32) * 5.0 / 9.0 
-    def tw = t * Math.atan(0.151977 * Math.pow(rh + 8.313659, 0.5)) + 
-             Math.atan(t + rh) - 
-             Math.atan(rh - 1.676331) + 
-             0.00391838 * Math.pow(rh, 1.5) * Math.atan(0.023101 * rh) - 
-             4.686035
+    def tw = t * Math.atan(0.151977 * Math.pow(rh + 8.313659, 0.5)) + Math.atan(t + rh) - Math.atan(rh - 1.676331) + 0.00391838 * Math.pow(rh, 1.5) * Math.atan(0.023101 * rh) - 4.686035
     return (tw * 9.0 / 5.0) + 32 
 }
 
@@ -288,9 +252,7 @@ def getPeakLatching(list, currentVal, minutes) {
 }
 
 def getNormalizedScore(type) {
-    def totalMax = 0;
-    def current = 0
-    // Lightning Stale Check - Including Override Logic
+    def totalMax = 0; def current = 0
     def ignoreLightning = excludeLightning || (state.lightningStale && !state.stormOverrideActive)
     
     if (type == "storm") {
@@ -305,14 +267,12 @@ def getNormalizedScore(type) {
         current = state.rawFloodScore ?: 0
         if (!excludeRain) totalMax += getTunedWeight("runoff");
         if (!excludeRain) totalMax += getTunedWeight("sat")
-    } else if (type == "frost") {
-        current = state.rawFrostScore ?: 0
-        totalMax += getTunedWeight("ftemp");
-        totalMax += getTunedWeight("fhum")
+    } else if (type == "freeze") {
+        current = state.rawFreezeScore ?: 0
+        totalMax += getTunedWeight("ftemp"); totalMax += getTunedWeight("fhum")
         if (!excludeWind) totalMax += getTunedWeight("fcold");
         totalMax += getTunedWeight("fcrash")
     }
-    
     if (totalMax == 0) return 0
     return ((current / totalMax) * 100).toInteger()
 }
@@ -331,8 +291,7 @@ def getActiveFactors(type) {
     } else if (type == "flood") {
         if ((state.frrWeight ?: 0) > 0) f.add("Runoff")
         if ((state.fsWeight ?: 0) > 0) f.add("Soil Sat")
-    
-    } else if (type == "frost") {
+    } else if (type == "freeze") {
         if ((state.fTempWeight ?: 0) > 0) f.add("Temp")
         if ((state.fHumWeight ?: 0) > 0) f.add("Vapor")
         if ((state.fDirWeight ?: 0) > 0) f.add("Advection")
@@ -348,9 +307,9 @@ def getSensorIssues() {
     if ((state.paiFlood ?: 100) < 90) issues.add("RAIN: ${state.paiFloodWhy ?: 'Nominal'}")
     if (state.anomalies && state.anomalies.size() > 0) issues.add("ANOMALY: ${state.anomalies[0].type}")
     if (settings.masterEnable == false) issues.add("SYSTEM DISABLED (MASTER SWITCH OFF)")
+    if ((state.globalMuteExpires ?: 0) > now()) issues.add("SYSTEM MUTED (24HR)")
     if (state.lightningStale == true && !state.stormOverrideActive && !excludeLightning) issues.add("LIGHTNING: Data Stale (>1h) - Sensor Logic Bypassed")
     if (state.stormOverrideActive) issues.add("STORM OVERRIDE: Stale Lightning Data in use (DNA > 40%)")
-  
     return issues
 }
 
@@ -358,49 +317,23 @@ def getSparkline(list) {
     if (!list || list.size() < 2) return "<span style='color:#ccc; font-family:monospace;'>...</span>"
     def vals = list.collect { (it instanceof Map) ? it.value : it }
     def l = vals.take(10).reverse()
-    def min = l.min();
-    def max = l.max(); def range = max - min
+    def min = l.min(); def max = l.max(); def range = max - min
     if (range == 0) return "<span style='color:#4caf50; font-family:monospace;'>▬▬▬▬▬</span>"
-    def bars = [" ", "▂", "▃", "▅", "▇"];
-    def spark = ""
+    def bars = [" ", "▂", "▃", "▅", "▇"]; def spark = ""
     l.each { val -> spark += bars[((val - min) / range * 4).toInteger()] }
     return "<span style='color:${l.last() > l.first() ? '#ff9800' : '#2196f3'}; font-family:monospace; font-weight:bold; letter-spacing:1px;'>${spark}</span>"
 }
 
-def getSemTemp(v) { 
-    if (v < 32) return "FREEZING";
-    if (v < 50) return "COLD"; 
-    if (v < 75) return "MILD"; if (v < 90) return "WARM";
-    return "HOT" 
-}
-def getSemHum(v) { 
-    if (v < 30) return "DRY";
-    if (v < 60) return "COMFORT"; return "HUMID" 
-}
-def getBeaufort(v) { 
-    if (v < 1) return "F0";
-    if (v < 4) return "F1"; if (v < 8) return "F2"; if (v < 13) return "F3";
-    if (v < 19) return "F4"; if (v < 25) return "F5"; if (v < 32) return "F6";
-    if (v < 39) return "F7";
-    if (v < 47) return "F8"; if (v < 55) return "F9";
-    if (v < 64) return "F10"; return "F12" 
-}
+def getSemTemp(v) { if (v < 32) return "FREEZING"; if (v < 50) return "COLD"; if (v < 75) return "MILD"; if (v < 90) return "WARM"; return "HOT" }
+def getSemHum(v) { if (v < 30) return "DRY"; if (v < 60) return "COMFORT"; return "HUMID" }
+def getBeaufort(v) { if (v < 1) return "F0"; if (v < 4) return "F1"; if (v < 8) return "F2"; if (v < 13) return "F3"; if (v < 19) return "F4"; if (v < 25) return "F5"; if (v < 32) return "F6"; if (v < 39) return "F7"; if (v < 47) return "F8"; if (v < 55) return "F9"; if (v < 64) return "F10"; return "F12" }
 def getCardinal(degree) {
     if (degree == null) return "N/A"
     def dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"]
-    def idx = Math.round(((degree % 360) / 22.5)).toInteger();
-    if (idx >= 16) idx = 0; return dirs[idx]
+    def idx = Math.round(((degree % 360) / 22.5)).toInteger(); if (idx >= 16) idx = 0; return dirs[idx]
 }
-def getSemWind(v) { 
-    if (v < 5) return "CALM";
-    if (v < 20) return "BREEZY"; if (v < 35) return "WINDY";
-    return "GALE" 
-}
-def getSemDew(v) { 
-    if (v < 55) return "DRY";
-    if (v < 65) return "STICKY"; if (v < 75) return "MUGGY";
-    return "TROPICAL" 
-}
+def getSemWind(v) { if (v < 5) return "CALM"; if (v < 20) return "BREEZY"; if (v < 35) return "WINDY"; return "GALE" }
+def getSemDew(v) { if (v < 55) return "DRY"; if (v < 65) return "STICKY"; if (v < 75) return "MUGGY"; return "TROPICAL" }
 def getTrendAnalysis(l) {
     if (!l || l.size()<2) return "<span style='color:#bbb;'>...</span>"
     def vals = l.collect { (it instanceof Map) ? it.value : it }
@@ -426,7 +359,6 @@ def getPredTrend(current, pred) {
 // =================================================================================================
 
 def alertBox(t, b, c) { return "<div style='background:${c}; color:white; padding:10px; border-radius:5px; margin-bottom:5px; animation: pulse 2s infinite;'><b>${t}</b><br>${b}</div><style>@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.8; } 100% { opacity: 1; } }</style>" }
-
 def trustRow(l, s, w, c) { return "<div style='border-left:4px solid ${c}; padding:8px; background:#fff; margin-bottom:5px; box-shadow:0 1px 2px #eee;'><b>${l}</b>: ${s}% <span style='font-size:0.8em;'>(${w})</span></div>" }
 
 def predBlock(name, status, color, trust, isTest, factors) { 
@@ -434,25 +366,31 @@ def predBlock(name, status, color, trust, isTest, factors) {
     return "<div style='flex:1; background:white; border:1px solid ${color}; border-radius:8px; text-align:center; padding:10px; box-shadow:0 2px 4px rgba(0,0,0,0.05);'><div style='font-size:0.75em; font-weight:bold; color:#555; margin-bottom:5px;'>${name}</div><div style='color:${color}; font-weight:900; font-size:0.9em;'>${displayStatus}</div><div style='font-size:0.6em; color:#bbb; margin-top:2px;'>PAI: ${trust}%</div></div>" 
 }
 
-def proHazardBlock(name, score, limit, color, trust, isTest, factors) { 
-    def displayStatus = isTest ? 'TEST' : (score >= limit ? 'ALERT' : 'OK')
-    if (name == "FROST" && !isTest) {
+def proHazardBlock(name, score, limit, color, trust, isTest, factors, typeLabel="ALERT") { 
+    def displayStatus = isTest ? 'TEST' : (score >= limit ? typeLabel : 'OK')
+    if (name == "FREEZE" && !isTest) {
         if ((state.lastT ?: 99).toDouble() <= 30.0) displayStatus = "ALARM"
-        else if ((state.lastT ?: 99).toDouble() <= (frostTempThreshold ?: 37).toDouble()) displayStatus = "WARNING"
+        else if ((state.lastT ?: 99).toDouble() <= (freezeTempThreshold ?: 37).toDouble()) displayStatus = "WARNING"
     }
-    return """<div style='flex:1; background:#ffffff; border-radius:10px; border:1px solid #eee; overflow:hidden; text-align:center; box-shadow:0 2px 5px rgba(0,0,0,0.05);'><div style='background:${color}; color:white; padding:5px; font-size:0.7em; font-weight:bold;'>${name} ${displayStatus}</div><div style='padding:15px;'><div style='font-size:2em; font-weight:900;'>${isTest ? 100 : (score ?: 0)}%</div><div style='width:80%; height:5px; background:#f0f0f0; margin:5px auto;'><div style='width:${Math.min((isTest ? 100 : (score?:0)), 100)}%; height:100%; background:${color};'></div></div><div style='font-size:0.6em; color:#555; margin-top:5px; font-weight:bold;'>${factors}</div><div style='font-size:0.6em; color:#888;'>PAI: ${trust}%</div></div></div>"""
+    def statusBg = (displayStatus == typeLabel || displayStatus == "ALARM" || displayStatus == "WARNING") ? color : "#eee"
+    def statusTxt = (displayStatus == typeLabel || displayStatus == "ALARM" || displayStatus == "WARNING") ? "white" : "#777"
+    return """<div style='flex:1; background:#ffffff; border-radius:10px; border:1px solid #eee; overflow:hidden; text-align:center; box-shadow:0 2px 5px rgba(0,0,0,0.05);'>
+        <div style='background:${statusBg}; color:${statusTxt}; padding:5px; font-size:0.7em; font-weight:bold;'>${name} ${displayStatus}</div>
+        <div style='padding:15px;'>
+            <div style='font-size:2em; font-weight:900; line-height:1em;'>${isTest ? 100 : (score ?: 0)}%</div>
+            <div style='font-size:0.75em; color:#555; font-weight:bold; margin-bottom:8px; border-bottom:1px solid #f0f0f0; padding-bottom:5px;'>TRIGGER: &ge; ${limit}%</div>
+            <div style='width:80%; height:5px; background:#f0f0f0; margin:5px auto; border-radius:2px; font-size:0;'><div style='width:${Math.min((isTest ? 100 : (score?:0)), 100)}%; height:100%; background:${color}; border-radius:2px;'></div></div>
+            <div style='font-size:0.6em; color:#555; margin-top:5px; font-weight:bold; height:2.5em; overflow:hidden; display:flex; align-items:center; justify-content:center;'>${factors ?: "No Active Factors"}</div>
+            <div style='font-size:0.6em; color:#bbb; margin-top:3px;'>PAI: ${trust}%</div>
+        </div>
+    </div>"""
 }
 
 def generateLogTable(title, list, unit) {
     if (!list) return "<div style='color:#999; font-style:italic;'>No data available for ${title}</div>"
     def html = """<div style='border:1px solid #ddd; border-radius:5px; margin-bottom:10px; overflow:hidden;'>
-    <div style='background:#eee; padding:5px 10px; font-weight:bold; border-bottom:1px solid #ddd; display:flex; justify-content:space-between;'>
-        <span>${title}</span><span style='font-size:0.8em; color:#777;'>(${list.size()} pts)</span>
-    </div>
-    <div style='max-height:150px; overflow-y:auto;'>
-        <table style='width:100%; font-size:0.8em; border-collapse:collapse;'>
-    """
-    
+    <div style='background:#eee; padding:5px 10px; font-weight:bold; border-bottom:1px solid #ddd; display:flex; justify-content:space-between;'><span>${title}</span><span style='font-size:0.8em; color:#777;'>(${list.size()} pts)</span></div>
+    <div style='max-height:150px; overflow-y:auto;'><table style='width:100%; font-size:0.8em; border-collapse:collapse;'>"""
     list.eachWithIndex { entry, i ->
         def val = entry instanceof Map ? entry.value : entry
         def time = entry instanceof Map ? entry.time : 0
@@ -460,7 +398,6 @@ def generateLogTable(title, list, unit) {
         def bg = (i % 2 == 0) ? "#fff" : "#f9f9f9"
         html += "<tr style='background:${bg}; border-bottom:1px solid #f0f0f0;'><td style='padding:4px 10px; color:#555;'>${timeStr}</td><td style='padding:4px 10px; text-align:right; font-weight:bold;'>${val}${unit}</td></tr>"
     }
-    
     html += "</table></div></div>"
     return html
 }
@@ -480,16 +417,34 @@ def generateHealthGrid() {
 
 def generateAlertLogGrid() {
     def log = state.alertHistory ?: []
-    def html = """<div style='background:white; border:1px solid #ccc; border-radius:10px; overflow:hidden; box-shadow:0 2px 4px rgba(0,0,0,0.1);'><table style='width:100%; font-size:0.8em; border-collapse:collapse;'><tr style='background:#eee; color:#333; font-weight:bold; text-align:left;'><td style='padding:8px;'>EVENT</td><td style='padding:8px;'>TIME</td><td style='padding:8px;'>DURATION</td></tr>"""
-    if (log.size() == 0) {
+    def activeStart = state.activeEventStart
+    def html = """<div style='background:white; border:1px solid #ccc; border-radius:10px; overflow:hidden; box-shadow:0 2px 4px rgba(0,0,0,0.1);'><table style='width:100%; font-size:0.8em; border-collapse:collapse;'><tr style='background:#eee; color:#333; font-weight:bold; text-align:left;'><td style='padding:8px;'>EVENT</td><td style='padding:8px;'>START/TRIGGERED</td><td style='padding:8px;'>DURATION</td></tr>"""
+    if (activeStart) {
+        activeStart.each { key, time ->
+            if (time > 0) {
+                 def typeName = "UNKNOWN"; def color = "#d32f2f"
+                 if (key == "storm") typeName = "🌪️ STORM ALARM"
+                 else if (key == "flood") { typeName = "🌊 FLOOD ALARM"; color = "#1976d2" }
+                 else if (key == "freeze") { typeName = "❄️ FREEZE ALARM"; color = "#455a64" }
+                 else if (key == "pStorm") { typeName = "🔮 PRE-STORM WATCH"; color = "#ff9800" }
+                 else if (key == "pFlood") { typeName = "🔮 PRE-FLOOD WATCH"; color = "#ff9800" }
+                 else if (key == "pFreeze") { typeName = "🔮 PRE-FREEZE WATCH"; color = "#ff9800" }
+                 def diff = now() - time
+                 def dur = diff < 60000 ? "${(diff/1000).toInteger()}s" : "${(diff/60000).toInteger()}m"
+                 def timeStr = new Date(time).format("MM-dd HH:mm", location.timeZone)
+                 html += """<tr style='background:#fff3e0; border-bottom:1px solid #ffcc80;'><td style='padding:8px; color:${color}; font-weight:bold;'>${typeName} (ACTIVE)</td><td style='padding:8px;'>${timeStr}</td><td style='padding:8px; font-weight:bold;'>${dur}</td></tr>"""
+            }
+        }
+    }
+    if (log.size() == 0 && (!activeStart || !activeStart.any { it.value > 0 })) {
         html += "<tr><td colspan='3' style='padding:15px; text-align:center; color:#999;'>No triggers recorded since last reset.</td></tr>"
     } else {
         log.take(10).each { entry ->
             def color = "#333"
             if (entry.type.contains("STORM")) color = "#d32f2f"
             else if (entry.type.contains("FLOOD")) color = "#1976d2"
-            else if (entry.type.contains("FROST")) color = "#455a64"
-            
+            else if (entry.type.contains("FREEZE")) color = "#455a64"
+            else if (entry.type.contains("PRE-")) color = "#e65100"
             html += """<tr style='border-bottom:1px solid #f0f0f0;'><td style='padding:8px; color:${color}; font-weight:bold;'>${entry.type}</td><td style='padding:8px;'>${entry.time}</td><td style='padding:8px;'>${entry.duration}</td></tr>"""
         }
     }
@@ -497,14 +452,35 @@ def generateAlertLogGrid() {
     return html
 }
 
+def generateStatsGrid() {
+    def stats = state.triggerStats ?: [storm:0, flood:0, freeze:0, pStorm:0, pFlood:0, pFreeze:0]
+    return """
+    <div style='display:flex; justify-content:space-between; gap:10px; margin-bottom:10px;'>
+        <div style='flex:1; background:#fbe9e7; padding:10px; border-radius:8px; text-align:center; border:1px solid #ffccbc;'>
+            <div style='font-size:0.7em; color:#bf360c; font-weight:bold;'>STORM TRIGGERS</div>
+            <div style='font-size:1.2em; font-weight:bold;'>${stats.storm}</div>
+            <div style='font-size:0.6em; color:#d84315;'>Watch: ${stats.pStorm}</div>
+        </div>
+        <div style='flex:1; background:#e3f2fd; padding:10px; border-radius:8px; text-align:center; border:1px solid #90caf9;'>
+            <div style='font-size:0.7em; color:#0d47a1; font-weight:bold;'>FLOOD TRIGGERS</div>
+            <div style='font-size:1.2em; font-weight:bold;'>${stats.flood}</div>
+            <div style='font-size:0.6em; color:#1565c0;'>Watch: ${stats.pFlood}</div>
+        </div>
+        <div style='flex:1; background:#eceff1; padding:10px; border-radius:8px; text-align:center; border:1px solid #cfd8dc;'>
+            <div style='font-size:0.7em; color:#455a64; font-weight:bold;'>FREEZE TRIGGERS</div>
+            <div style='font-size:1.2em; font-weight:bold;'>${stats.freeze}</div>
+            <div style='font-size:0.6em; color:#546e7a;'>Watch: ${stats.pFreeze}</div>
+        </div>
+    </div>
+    """
+}
+
 def generateLogicGrid() {
     def t = state.lastT ?: 70.0; def h = state.lastH ?: 50.0
     def r = state.lastR ?: 0.0; def g = state.lastG ?: 0.0; def w = state.lastWind ?: 0.0
-    def l = state.lastLit ?: 0
-    def wc = state.lastWC ?: t
+    def l = state.lastLit ?: 0; def wc = state.lastWC ?: t
     def bat = state.histBat && state.histBat[0] ? state.histBat[0].value : 100
-    def lux = state.lastLux ?: 0
-    def wDir = state.lastWindDir ?: 0; def cardDir = getCardinal(wDir)
+    def lux = state.lastLux ?: 0; def wDir = state.lastWindDir ?: 0; def cardDir = getCardinal(wDir)
     
     def sT = getSemTemp(t); def sH = getSemHum(h); def sG = getBeaufort(g); def sD = getSemDew(state.lastDew ?: 0)
     def tTrend = getTrendAnalysis(state.histTemp); def hTrend = getTrendAnalysis(state.histHum); def dTrend = getTrendAnalysis(state.histDew)
@@ -515,10 +491,8 @@ def generateLogicGrid() {
     def dL = excludeLightning ? "<span style='color:#bbb'>N/A</span>" : ((state.lightningStale && !state.stormOverrideActive) ? "<span style='color:orange'>STALE</span>" : "${l}");
     def dLx = excludeLux ? "<span style='color:#bbb'>N/A</span>" : "${lux} lx"
     def dCard = excludeWind ? "" : "<br><small style='color:#757575;'><b>⮡ ${cardDir} (${wDir}°)</b></small>"
-    def cT = state.histTemp?.size() ?: 0;
-    def cH = state.histHum?.size() ?: 0; def cG = state.histGust?.size() ?: 0
-    def cR = state.histRain?.size() ?: 0;
-    def cD = state.histDew?.size() ?: 0; def cL = state.histLux?.size() ?: 0
+    def cT = state.histTemp?.size() ?: 0; def cH = state.histHum?.size() ?: 0; def cG = state.histGust?.size() ?: 0
+    def cR = state.histRain?.size() ?: 0; def cD = state.histDew?.size() ?: 0; def cL = state.histLux?.size() ?: 0
 
     return """<table style='width:100%; text-align:center; font-size:0.9em; background:#ffffff; border-collapse:separate; border-spacing:4px;'><tr><td style='background:#f5f5f5; padding:8px; border-radius:8px;'>🌡️ <b>TEMP</b><br>${t.toDouble().round(1)}°F ${tTrend}<br><small>(${sT})</small><br>${getSparkline(state.histTemp)}<br><small style='color:#999;'>(${cT} pts)</small></td><td style='background:#f5f5f5; padding:8px; border-radius:8px;'>💧 <b>HUM</b><br>${h}% ${hTrend}<br><small>(${sH})</small><br>${getSparkline(state.histHum)}<br><small style='color:#999;'>(${cH} pts)</small></td><td style='background:#f5f5f5; padding:8px; border-radius:8px;'>💨 <b>WIND</b><br>${dG}<br><small>${wTrend} / ${gTrend}</small><br>${getSparkline(state.histWind)}${dCard}<br><small style='color:#999;'>(${cG} pts)</small></td></tr><tr><td style='background:#f5f5f5; padding:8px; border-radius:8px;'>🌧️ <b>RAIN</b><br>${dR}<br>${getSparkline(state.histRain)}<br><small style='color:#999;'>(${cR} pts)</small></td><td style='background:#f5f5f5; padding:8px; border-radius:8px;'>🌫️ <b>DEW</b><br>${state.lastDew}°F ${dTrend}<br><small>(${sD})</small><br>${getSparkline(state.histDew)}<br><small style='color:#999;'>(${cD} pts)</small></td><td style='background:#f5f5f5; padding:8px; border-radius:8px;'>🥶 <b>CHILL</b><br>${wc}°F<br>${getSparkline(state.histChill)}</td></tr><tr><td style='background:#f5f5f5; padding:8px; border-radius:8px;'>☀️ <b>LUX</b><br>${dLx}<br>${getSparkline(state.histLux)}<br><small style='color:#999;'>(${cL} pts)</small></td><td style='background:#f5f5f5; padding:8px; border-radius:8px;'>🌍 <b>SAT</b><br>${state.drainageLvl}%<br>${getSparkline(state.histSat)}</td><td style='background:#f5f5f5; padding:8px; border-radius:8px;'>⚡ <b>LIT</b><br>${dL}</td></tr><tr><td colspan='3' style='background:#f5f5f5; padding:4px; border-radius:8px; font-size:0.8em;'>🔋 <b>STATION POWER:</b> ${bat}%</td></tr></table>"""
 }
@@ -543,16 +517,19 @@ def generateDetailedTable(title, List sensors, color, isActiveTest) {
 }
 
 def generatePredictionGrid() {
-    def f = state.forecast ?: [storm: [status:"WAITING", color:"#aaa"], flood: [status:"WAITING", color:"#aaa"], frost: [status:"WAITING", color:"#aaa"], predT:0, predH:0, predD:0, predW:0, predG:0, predR:0]
+    def f = state.forecast ?: [storm: [status:"WAITING", color:"#aaa"], flood: [status:"WAITING", color:"#aaa"], freeze: [status:"WAITING", color:"#aaa"], predT:0, predH:0, predD:0, predW:0, predG:0, predR:0]
     
+    if (!f.storm) f.storm = [status:"WAITING", color:"#aaa"]
+    if (!f.flood) f.flood = [status:"WAITING", color:"#aaa"]
+    if (!f.freeze) f.freeze = [status:"WAITING", color:"#aaa"]
+
     if (state.testStorm) f.storm = [status:"IMMINENT", color:"#d32f2f"]
     if (state.testFlood) f.flood = [status:"IMMINENT", color:"#d32f2f"]
-    if (state.testFrost) f.frost = [status:"IMMINENT", color:"#d32f2f"]
+    if (state.testFreeze) f.freeze = [status:"IMMINENT", color:"#d32f2f"]
     if (state.testPredStorm) f.storm = [status:"PRE-ALERT", color:"#ff9800"]
     if (state.testPredFlood) f.flood = [status:"PRE-ALERT", color:"#ff9800"]
-    if (state.testPredFrost) f.frost = [status:"PRE-ALERT", color:"#ff9800"]
+    if (state.testPredFreeze) f.freeze = [status:"PRE-ALERT", color:"#ff9800"]
     
-  
     def t = (state.lastT ?: 0.0).toDouble()
     def h = (state.lastH ?: 0.0).toDouble()
     def rain = (state.lastR ?: 0.0).toDouble()
@@ -565,7 +542,7 @@ def generatePredictionGrid() {
     return """<div style='display:flex; gap:10px; margin-bottom:5px;'>
         ${predBlock("🌪️ STORM", f.storm.status, f.storm.color, state.paiStorm ?: 100, state.testStorm || state.testPredStorm || state.simulateScan, getActiveFactors("storm"))}
         ${predBlock("🌊 FLOOD", f.flood.status, f.flood.color, state.paiFlood ?: 100, state.testFlood || state.testPredFlood || state.simulateScan, getActiveFactors("flood"))}
-        ${predBlock("❄️ FROST", f.frost.status, f.frost.color, state.paiFrost ?: 100, state.testFrost || state.testPredFrost || state.simulateScan, getActiveFactors("frost"))}
+        ${predBlock("❄️ FREEZE", f.freeze.status, f.freeze.color, state.paiFreeze ?: 100, state.testFreeze || state.testPredFreeze || state.simulateScan, getActiveFactors("freeze"))}
     </div>
     <div style='background:#e3f2fd; border:1px solid #90caf9; border-radius:5px; padding:5px; font-size:0.85em;'>
         <table style='width:100%; text-align:center;'>
@@ -595,15 +572,14 @@ def mainPage() {
             section("2. Hazard Relays") {
                 input "controlSwitch", "capability.switch", title: "🌪️ Storm Relay", required: false
                 input "floodSwitch", "capability.switch", title: "🌊 Flood Relay", required: false
-                input "frostSwitch", "capability.switch", title: "❄️ Frost Relay", required: false
+                input "freezeSwitch", "capability.switch", title: "❄️ Freeze Relay", required: false
             }
             section("3. Predictive Relays") {
                 input "predStormSwitch", "capability.switch", title: "🔮 Pre-Storm", required: false
                 input "predFloodSwitch", "capability.switch", title: "🔮 Pre-Flood", required: false
-                input "predFrostSwitch", "capability.switch", title: "🔮 Pre-Frost", required: false
+                input "predFreezeSwitch", "capability.switch", title: "🔮 Pre-Freeze", required: false
             }
             section("4. System Control") {
-   
                 input "masterEnable", "bool", title: "🟢 Enable System Logic?", defaultValue: true, required: true
                 input "triggerDelay", "number", title: "⏱️ Trigger Delay (Min) - Prevents Flapping", defaultValue: 0, required: true
             }
@@ -616,63 +592,50 @@ def mainPage() {
     }
 
     dynamicPage(name: "mainPage", title: "", install: true, uninstall: true, refreshInterval: 60) {
-       
         // 1. EMERGENCY PROTOCOLS
         if (settings.showEmergProcs != false) {
             section() {
                 def sLim = stormTriggerPct ?: 60
                 def fLim = floodTriggerPct ?: 70
-            
-                def frLim = frostTriggerPct ?: 60
+                def frLim = freezeTriggerPct ?: 60
                 def sScore = getNormalizedScore("storm")
                 def fScore = getNormalizedScore("flood")
-                def frScore = getNormalizedScore("frost")
+                def frScore = getNormalizedScore("freeze")
                 boolean activeAlarm = (sScore >= sLim || fScore >= fLim || frScore >= frLim || state.testMode)
-   
-                boolean activeWatch = (state.testPredStorm || state.testPredFlood || state.testPredFrost || (state.forecast && (state.forecast.storm.status == "PRE-ALERT" || state.forecast.flood.status == "PRE-ALERT" || state.forecast.frost.status == "PRE-ALERT")))
+                boolean activeWatch = (state.testPredStorm || state.testPredFlood || state.testPredFreeze || (state.forecast && (state.forecast.storm?.status == "PRE-ALERT" || state.forecast.flood?.status == "PRE-ALERT" || state.forecast.freeze?.status == "PRE-ALERT")))
                 
                 if (activeAlarm) {
                     paragraph """<div style='border-radius:10px; background:rgba(211, 47, 47, 0.05); border:2px solid #d32f2f; padding:15px; margin-bottom:15px;'><h2 style='color:#d32f2f; margin:0 0 10px 0; font-family:sans-serif; border-bottom:1px solid #ffcdd2; padding-bottom:5px;'>🚨 ACTIVE EMERGENCY PROCEDURES</h2>"""
-                
- 
                     if (sScore >= sLim || state.testStorm) {
                         def stormTxt = """<b>ACTION REQUIRED:</b><br>1. Seek shelter in interior room/basement.<br>2. Stay away from windows.<br>3. Monitor weather radio."""
                         paragraph alertBox("🌪️ STORM PROTOCOL (ACTIVE)", stormTxt, "#d32f2f")
-   
-                }
+                    }
                     if (fScore >= fLim || state.testFlood) {
                         def floodTxt = """<b>ACTION REQUIRED:</b><br>1. Move to higher ground immediately.<br>2. Do not walk/drive through water.<br>3. Disconnect utilities if safe."""
                         paragraph alertBox("🌊 FLOOD PROTOCOL (ACTIVE)", floodTxt, "#1976d2")
                     }
-                    if (frScore >= frLim || state.testFrost) {
-                     
-                   def frostTxt = """<b>ACTION REQUIRED:</b><br>1. Maintain indoor heat > 65°F.<br>2. Open cabinets to expose pipes.<br>3. Drip faucets immediately."""
-                        paragraph alertBox("❄️ FROST PROTOCOL (ACTIVE)", frostTxt, "#455a64")
+                    if (frScore >= frLim || state.testFreeze) {
+                        def freezeTxt = """<b>ACTION REQUIRED (PIPE PROTECTION):</b><br>1. Maintain indoor heat > 65°F.<br>2. Open cabinets to expose pipes.<br>3. Drip faucets immediately."""
+                        paragraph alertBox("❄️ FREEZE PROTOCOL (ACTIVE)", freezeTxt, "#455a64")
                     }
-        
                     paragraph "</div>"
                 }
-   
-             
                 if (activeWatch && !activeAlarm) {
                     paragraph """<div style='border-radius:10px; background:rgba(255, 152, 0, 0.05); border:2px solid #ff9800; padding:15px; margin-bottom:15px;'><h2 style='color:#ff9800; margin:0 0 10px 0; font-family:sans-serif; border-bottom:1px solid #ffe0b2; padding-bottom:5px;'>🔮 PREDICTIVE WATCH ADVISORIES</h2>"""
-                     if (state.testPredStorm || state.forecast.storm.status == "PRE-ALERT") {
+                     if (state.testPredStorm || state.forecast.storm?.status == "PRE-ALERT") {
                          def stormPre = """<b>PREPARE:</b><br>1. Secure loose outdoor items.<br>2. Charge mobile devices.<br>3. Verify flashlight batteries."""
                          paragraph alertBox("🌪️ STORM WATCH (PREPARING)", stormPre, "#f57c00")
                      }
-                     if (state.testPredFlood || state.forecast.flood.status == "PRE-ALERT") {
-            
+                     if (state.testPredFlood || state.forecast.flood?.status == "PRE-ALERT") {
                          def floodPre = """<b>PREPARE:</b><br>1. Check sump pump operation.<br>2. Clear gutters and drains.<br>3. Elevate basement valuables."""
                          paragraph alertBox("🌊 FLOOD WATCH (PREPARING)", floodPre, "#1976d2")
                      }
-                     if (state.testPredFrost || state.forecast.frost.status == "PRE-ALERT") {
-           
-                          def frostPre = """<b>PREPARE:</b><br>1. Disconnect garden hoses.<br>2. Cover sensitive plants.<br>3. Verify heating system fuel."""
-                         paragraph alertBox("❄️ FROST WATCH (PREPARING)", frostPre, "#455a64")
+                     if (state.testPredFreeze || state.forecast.freeze?.status == "PRE-ALERT") {
+                         def freezePre = """<b>PREPARE:</b><br>1. Disconnect garden hoses.<br>2. Cover exposed pipes.<br>3. Verify heating system fuel."""
+                         paragraph alertBox("❄️ FREEZE WATCH (PREPARING)", freezePre, "#455a64")
                       }
                      paragraph "</div>"
-                
-}
+                }
             }
         }
 
@@ -681,48 +644,35 @@ def mainPage() {
             def statusColor = (settings.masterEnable == false) ? "#666" : ((state.testMode || state.simulateScan) ? "#6f42c1" : "#37474f")
             def timeLabel = state.lastPollStr ?: "WAITING..."
             def issues = getSensorIssues() 
- 
             def healthLabel = issues.size() == 0 ? "<span style='color:#4caf50;'>HEALTHY</span>" : "<span style='color:#f44336;'>ATTENTION</span>"
             if (settings.masterEnable == false) healthLabel = "<span style='color:#ffc107;'>DISABLED</span>"
+            if ((state.globalMuteExpires ?: 0) > now()) healthLabel = "<span style='color:#f44336;'>MUTED</span>"
             def simLabel = state.simulateScan ? """<span style='color:#ff9800; font-weight:bold;'> ⚠️ SIMULATION MODE</span>""" : ""
-            
-            // [NEW] Calculated Timer Logic
             def formatTime = { minutes ->
                 if (minutes <= 0) return "0:00"
                 if (minutes < 60) return "${minutes.toInteger()}m"
-        
                 return "${(minutes/60).toInteger()}h ${minutes%60}m"
             }
-            
-            // Prediction Timers
             def sTime = (state.timeToStorm ?: -1).toDouble().round(0).toInteger()
             def fTime = (state.timeToFlood ?: -1).toDouble().round(0).toInteger()
-            def frTime = (state.timeToFrost ?: -1).toDouble().round(0).toInteger()
- 
-           
+            def frTime = (state.timeToFreeze ?: -1).toDouble().round(0).toInteger()
             def sLabel = sTime > 0 ? (state.stormActive ? "CLEAR IN" : "ALERT IN") : "NO TIMER ACTIVE"
             def fLabel = fTime > 0 ? (state.floodActive ? "CLEAR IN" : "ALERT IN") : "NO TIMER ACTIVE"
-            def frLabel = frTime > 0 ? (state.frostActive ? "CLEAR IN" : "ALERT IN") : "NO TIMER ACTIVE"
-  
-           
+            def frLabel = frTime > 0 ? (state.freezeActive ? "CLEAR IN" : "ALERT IN") : "NO TIMER ACTIVE"
             def sDisp = sTime > 0 ? formatTime(sTime) : "0:00"
             def fDisp = fTime > 0 ? formatTime(fTime) : "0:00"
             def frDisp = frTime > 0 ? formatTime(frTime) : "0:00"
-            
-            // Cooldown Logic
             def getCooldown = { key ->
                 def last = state.lastTriggerTime ? state.lastTriggerTime[key] : 0
                 def delay = (triggerDelay ?: 0) * 60000
                 def nextCall = last + delay
                 def remain = nextCall - now()
                 if (remain > 0) return (remain / 60000).toInteger()
-          
                 return 0
             }
             def sCool = getCooldown("storm")
             def fCool = getCooldown("flood")
-            def frCool = getCooldown("frost")
-            
+            def frCool = getCooldown("freeze")
             def sCoolDisp = sCool > 0 ? "⛔ ${sCool}m" : "<span style='color:#4caf50;'>READY</span>"
             def fCoolDisp = fCool > 0 ? "⛔ ${fCool}m" : "<span style='color:#4caf50;'>READY</span>"
             def frCoolDisp = frCool > 0 ? "⛔ ${frCool}m" : "<span style='color:#4caf50;'>READY</span>"
@@ -731,12 +681,9 @@ def mainPage() {
             <div style='padding:20px; background:linear-gradient(135deg, ${statusColor} 0%, #263238 100%); color:white; border-radius:12px; text-align:center; box-shadow: 0 8px 20px rgba(0,0,0,0.3);'>
                 <h1 style='margin:0; font-family:sans-serif; letter-spacing:2px; font-size:1.6em; text-transform:uppercase;'>Trajectory Weather Labs</h1>
                 <div style='color:#b0bec5; font-size:0.9em; font-style:italic; margin-bottom:15px; letter-spacing:1px;'>Predict the surge. Control the outcome.</div>
-        
-                
                 <div style='background:rgba(0,0,0,0.2); border-radius:8px; padding:10px; margin-bottom:15px; display:flex; justify-content:space-around;'>
                     <div style='text-align:center; width:33%;'>
                         <div style='font-size:0.7em; color:#ef5350; font-weight:bold;'>STORM</div>
-             
                         <div style='font-size:0.6em; color:#ef9a9a;'>${sLabel}</div>
                         <div style='font-size:1.1em; font-weight:bold;'>⏳ ${sDisp}</div>
                         <div style='margin-top:5px; font-size:0.7em; border-top:1px solid rgba(255,255,255,0.1); padding-top:2px;'>NEXT CALL:<br>${sCoolDisp}</div>
@@ -748,99 +695,109 @@ def mainPage() {
                         <div style='margin-top:5px; font-size:0.7em; border-top:1px solid rgba(255,255,255,0.1); padding-top:2px;'>NEXT CALL:<br>${fCoolDisp}</div>
                     </div>
                     <div style='text-align:center; width:33%; border-left:1px solid rgba(255,255,255,0.1);'>
-                        <div style='font-size:0.7em; color:#90a4ae; font-weight:bold;'>FROST</div>
+                        <div style='font-size:0.7em; color:#90a4ae; font-weight:bold;'>FREEZE</div>
                         <div style='font-size:0.6em; color:#cfd8dc;'>${frLabel}</div>
                         <div style='font-size:1.1em; font-weight:bold;'>⏳ ${frDisp}</div>
                         <div style='margin-top:5px; font-size:0.7em; border-top:1px solid rgba(255,255,255,0.1); padding-top:2px;'>NEXT CALL:<br>${frCoolDisp}</div>
                     </div>
                 </div>
-
                 <div style='font-size:0.8em; opacity:0.9; margin-top:15px; border-top:1px solid rgba(255,255,255,0.2); padding-top:10px; display:flex; justify-content:space-around;'>
                     <div><b>REGION:</b><br>${autoState ?: 'MANUAL'}</div>
                     <div><b>MOUNT:</b><br>${mountLocation?.toUpperCase() ?: 'ROOF'}</div>
                     <div><b>LAST POLL:</b><br>${timeLabel}</div>
                     <div><b>STATUS:</b><br>${healthLabel} ${simLabel}</div>
-       
-         </div>
-                <div style='font-size:0.7em; opacity:0.6; margin-top:10px; font-family:monospace;'>
-                    ENGINE: TRAJECTORY PHYSICS V78.8
-            </div>
-            </div>
-            """
-            href(name: "toConfig", page: "configurePage", title: "🛠️ DEVICE SETUP", description: "Sensors & Relays", width: 4)
-            href(name: "toTrust", page: "trustPage", title: "🛡️ TRUST", description: "Diagnostics", width: 4)
-            href(name: "toCalibration", page: "calibrationPage", title: "⚙️ SETTINGS", description: "Thresholds", width: 4)
-            
-            input "refreshBtn", "button", title: "🔄 RE-CALIBRATE", width: 4, submitOnChange: true
-            input "forceSimBtn", "button", title: "🧪 SIMULATE", width: 4, submitOnChange: true
-            input "reloadPageBtn", "button", title: "🔄 RELOAD UI", width: 4
-          
-            input "testStormBtn", "button", title: "🌪️ TEST STORM", width: 3, submitOnChange: true
-            input "testFloodBtn", "button", title: "🌊 TEST FLOOD", width: 3, submitOnChange: true
-            input "testFrostBtn", "button", title: "❄️ TEST FROST", width: 3, submitOnChange: true
-            input "clearBtn", "button", title: "❌ CLEAR", width: 3, submitOnChange: true
-           
-            paragraph """<div style='width:100%; height:1px; background:#ddd; margin:10px 0;'></div><div style='text-align:center; font-size:0.8em; color:#888; margin-bottom:5px;'>PREDICTIVE SENSOR TESTING</div>"""
-            
-            input "testPredStormBtn", "button", title: "🔮 TEST PRE-STORM", width: 4, submitOnChange: true
-            input "testPredFloodBtn", "button", title: "🔮 TEST PRE-FLOOD", width: 4, submitOnChange: true
-            input "testPredFrostBtn", "button", title: "🔮 TEST PRE-FROST", width: 4, submitOnChange: true
+                </div>
+                <div style='font-size:0.7em; opacity:0.6; margin-top:10px; font-family:monospace;'>ENGINE: TRAJECTORY PHYSICS V13.1</div>
+            </div>"""
         }
 
-     
         // 3. ALERT LOG DASHBOARD
-        section("<h2 style='color:#b71c1c; font-weight:bold;'>🚨 ALERT LOG DASHBOARD</h2>") {
-            paragraph generateAlertLogGrid()
-        }
-
-        // 4. TACTICAL REPORT
+        section("<h2 style='color:#b71c1c; font-weight:bold;'>🚨 ALERT LOG DASHBOARD</h2>") { paragraph generateAlertLogGrid() }
+        section("<h2 style='color:#b71c1c; font-weight:bold;'>📊 TRIGGER STATISTICS</h2>") { paragraph generateStatsGrid() }
         section("<h2 style='color:#006064; font-weight:bold;'>📝 TACTICAL SITUATION REPORT</h2>") {
+            paragraph """<details style='margin-bottom:10px; cursor:pointer;'><summary style='font-weight:bold; color:#006064; background:#e0f7fa; padding:8px; border-radius:5px; border:1px solid #b2ebf2;'>ℹ️ GUIDE: Understanding the Tactical Report</summary><div style='padding:10px; background:#f9f9f9; border:1px solid #eee; border-top:none; border-radius:0 0 5px 5px; font-size:0.85em; color:#555;'>This text-based summary aggregates data from all active sensors to provide a plain-English situation report. It highlights critical thermal thresholds (freeze/wet bulb), kinetic energy (wind/gusts), and developing trends (rate of change). Use this for a quick 'at-a-glance' understanding of the environment.</div></details>"""
             paragraph generateNarrativeGrid()
         }
 
-       // 5. PREDICTIVE MATRIX
- 
-       section("<h2 style='color:#0d47a1; font-weight:bold;'>🔮 PREDICTIVE RISK MATRIX (1HR)</h2>") {
-            paragraph generatePredictionGrid()
+        // 5. PREDICTIVE MATRIX
+        section("<h2 style='color:#0d47a1; font-weight:bold;'>🔮 PREDICTIVE RISK MATRIX (1HR)</h2>") {
+             paragraph """<details style='margin-bottom:10px; cursor:pointer;'><summary style='font-weight:bold; color:#0d47a1; background:#e3f2fd; padding:8px; border-radius:5px; border:1px solid #bbdefb;'>ℹ️ GUIDE: 1-Hour Forecast Logic</summary><div style='padding:10px; background:#f9f9f9; border:1px solid #eee; border-top:none; border-radius:0 0 5px 5px; font-size:0.85em; color:#555;'>This grid visualizes the future state of your environment 1 hour from now. It uses Linear Trend Extrapolation, calculating the slope (Rate of Change) of temperature, humidity, and wind over the past 60 minutes and projecting that trajectory forward. 'Status' indicators (STABLE, RISING, RISK) alert you to rapid changes before they hit critical levels.</div></details>"""
+             paragraph generatePredictionGrid()
+        }
+
+        // 5.5 PREDICTIVE HAZARD CONTROL CENTER (NEW)
+        section("""<h2 style='color:#ff8f00; font-weight:900; letter-spacing:1px; border-bottom:3px solid #ff8f00; padding-bottom:5px;'>🔮 PREDICTIVE CONTROL CENTER</h2>""") {
+            def psLim = predStormTriggerPct ?: 50
+            def pfLim = predFloodTriggerPct ?: 50
+            def pfrLim = predFreezeTriggerPct ?: 50
+            def predStormScore = (state.currentScore ?: 0)
+            if (state.forecast?.storm?.status == "RISING" || state.forecast?.storm?.status == "HIGH") predStormScore += 60
+            predStormScore = Math.min(predStormScore, 100)
+            def predFloodScore = (state.floodScore ?: 0)
+            if (state.forecast?.flood?.status == "RISING" || state.forecast?.flood?.status == "HIGH") predFloodScore += 60
+            predFloodScore = Math.min(predFloodScore, 100)
+            def predFreezeScore = (state.freezeScore ?: 0)
+            if (state.forecast?.freeze?.status == "RISK" || state.forecast?.freeze?.status == "FREEZE") predFreezeScore += 60
+            predFreezeScore = Math.min(predFreezeScore, 100)
+
+            paragraph """<div style='display:flex; justify-content:space-between; align-items:stretch; gap:15px; padding:10px 0;'>
+                ${proHazardBlock("STORM", predStormScore, psLim, "#ff9800", state.paiStorm ?: 100, state.testPredStorm, "Forecast: ${state.forecast?.storm?.status}", "WATCH")}
+                ${proHazardBlock("FLOOD", predFloodScore, pfLim, "#ff9800", state.paiFlood ?: 100, state.testPredFlood, "Forecast: ${state.forecast?.flood?.status}", "WATCH")}
+                ${proHazardBlock("FREEZE", predFreezeScore, pfrLim, "#ff9800", state.paiFreeze ?: 100, state.testPredFreeze, "Forecast: ${state.forecast?.freeze?.status}", "WATCH")}
+            </div>"""
+            paragraph """<details style='margin-bottom:10px; cursor:pointer;'><summary style='font-weight:bold; color:#e65100; background:#fff3e0; padding:8px; border-radius:5px; border:1px solid #ffe0b2;'>ℹ️ GUIDE: Watch Activation Logic</summary><div style='padding:10px; background:#f9f9f9; border:1px solid #eee; border-top:none; border-radius:0 0 5px 5px; font-size:0.85em; color:#555;'>This is the 'Watch' activation system. It calculates a 'Total Predictive Risk' score by combining your Current Baseline Stress (live sensor data) with the Forecasted Risk (future projection). If the Total Risk exceeds the trigger threshold (default 50%), a 'Watch' is issued. This allows the system to warn you of developing threats *before* active alarm thresholds are breached.</div></details>"""
         }
      
-       // 6. PREDICTIVE DNA ANALYSIS
+        // 6. PREDICTIVE RISK DNA ANALYSIS (REWORKED FOR VISIBILITY)
         section("<h2 style='color:#ff6f00; font-weight:bold;'>🧬 PREDICTIVE RISK DNA ANALYSIS</h2>") {
-            def f = state.forecast ?: [storm:[status:"WAITING"], flood:[status:"WAITING"], frost:[status:"WAITING"]]
+            def f = state.forecast ?: [storm:[status:"WAITING"], flood:[status:"WAITING"], freeze:[status:"WAITING"]]
             def useAuto = (enableAutoState == true || enableAutoState == null)
             def p = (useAuto && autoState) ? getClimateProfile(autoState) : [gust:35, wind:20, rain:1.0, dew:65, soil:"Silt", flood:2.0, freeze:37, hum:70]
             
             def pGust = predGustVal != null ? predGustVal.toDouble() : (gustVal != null ? gustVal.toDouble() : p.gust.toDouble())
-            def pFrost = predFrostTempVal != null ? predFrostTempVal.toDouble() : (frostTempThreshold != null ? frostTempThreshold.toDouble() : p.freeze.toDouble())
+            def pFreeze = predFreezeTempVal != null ? predFreezeTempVal.toDouble() : (freezeTempThreshold != null ? freezeTempThreshold.toDouble() : p.freeze.toDouble())
             def pDrop = predTempDropVal != null ? predTempDropVal.toDouble() : 1.0
             def pLimit = predStormTriggerPct ?: 50
+            def pFloodLimit = predFloodTriggerPct ?: 50
+            def pFreezeLimit = predFreezeTriggerPct ?: 50
+
+            def ps_Gust = (f.predG > pGust) ? 60 : 0
+            def ps_Trend = state.currentScore ?: 0
+            def ps_Total = Math.min(ps_Gust + ps_Trend, 100).toInteger()
             
-           
-             paragraph generateDetailedTable("🌪️ PRE-STORM DNA", [
-                [label: "Projected Gust", value: (f.predG > pGust) ? 100 : 0, max: 100, calc: "${f.predG}mph > ${pGust}mph", why: "Linear extrapolation of gust trend (Peak Locked).", exclude: excludeWind],
-                [label: "Storm Trend", value: (state.currentScore > pLimit) ? 100 : 0, max: 100, calc: "Current Score > ${pLimit}%", why: "Baseline storm probability increasing.", exclude: false]
-            ], "#ff9800", state.testPredStorm || f.storm.status != "STABLE")
+            def pf_Sat = state.floodScore ?: 0
+            def pf_Rate = (state.drainageLvl > 90) ? 40 : 0
+            def pf_Total = Math.min(pf_Sat + pf_Rate, 100).toInteger()
+
+            def pfr_Temp = (f.predT < pFreeze) ? 60 : 0
+            def pfr_Rate = (state.tRate < -pDrop) ? 20 : 0
+            def pfr_Base = state.freezeScore ?: 0
+            def pfr_Total = Math.min(pfr_Temp + pfr_Rate + pfr_Base, 100).toInteger()
             
-            paragraph generateDetailedTable("🌊 PRE-FLOOD DNA", [
-                [label: "Saturation Trend", value: (state.floodScore > (predFloodTriggerPct ?: 50)) ? 100 : 0, max: 100, calc: "Flood Score > ${(predFloodTriggerPct ?: 50)}%", why: "Soil saturation approaching critical limits.", exclude: excludeRain]
-             ], "#ff9800", state.testPredFlood || f.flood.status != "STABLE")
+            paragraph generateDetailedTable("🌪️ PRE-STORM PROBABILITY: ${ps_Total}%", [
+                [label: "1-Hr Forecast", value: ps_Gust, max: 60, calc: "${f.predG}mph > ${pGust}mph", why: "Primary Driver: Projected gusts exceed limit (60 pts).", exclude: excludeWind],
+                [label: "Baseline Instability", value: ps_Trend, max: 100, calc: "Current Stress: ${state.currentScore}%", why: "Context: Real-time accumulation of risk factors.", exclude: false]
+            ], "#ff9800", state.testPredStorm || f.storm?.status != "STABLE")
+            
+            paragraph generateDetailedTable("🌊 PRE-FLOOD PROBABILITY: ${pf_Total}%", [
+                 [label: "Saturation Trend", value: pf_Sat, max: 60, calc: "Current Saturation: ${state.floodScore}%", why: "Primary Driver: Soil approaching critical mass.", exclude: excludeRain],
+                 [label: "Drainage Load", value: pf_Rate, max: 40, calc: "Capacity > 90%", why: "Context: Ground cannot accept more water (40 pts).", exclude: excludeRain]
+             ], "#ff9800", state.testPredFlood || f.flood?.status != "STABLE")
       
- 
-            paragraph generateDetailedTable("❄️ PRE-FROST DNA", [
-                [label: "Projected Temp", value: (f.predT < pFrost) ? 100 : 0, max: 100, calc: "${f.predT}°F < ${pFrost}°F", why: "1-Hour projected temperature drop.", exclude: false],
-                [label: "Cooling Rate", value: (state.tRate < -pDrop) ? 100 : 0, max: 100, calc: "${state.tRate}°F/hr Drop", why: "Rapid cooling acceleration.", exclude: false]
-       
-             ], "#ff9800", state.testPredFrost || f.frost.status != "STABLE")
+            paragraph generateDetailedTable("❄️ PRE-FREEZE PROBABILITY: ${pfr_Total}%", [
+                [label: "1-Hr Forecast", value: pfr_Temp, max: 60, calc: "${f.predT}°F < ${pFreeze}°F", why: "Primary Driver: Projected to hit freezing in 60m (60 pts).", exclude: false],
+                [label: "Cooling Acceleration", value: pfr_Rate, max: 20, calc: "${state.tRate}°F/hr Drop", why: "Trend: Temp dropping faster than safety limit (20 pts).", exclude: false],
+                [label: "Baseline Instability", value: pfr_Base, max: 100, calc: "Current Freeze Risk: ${state.freezeScore}%", why: "Context: Real-time accumulation of risk factors.", exclude: false]
+             ], "#ff9800", state.testPredFreeze || f.freeze?.status != "STABLE")
             
+            paragraph """<details style='margin-bottom:10px; cursor:pointer;'><summary style='font-weight:bold; color:#e65100; background:#fff3e0; padding:8px; border-radius:5px; border:1px solid #ffe0b2;'>ℹ️ GUIDE: Probability Breakdown</summary><div style='padding:10px; background:#f9f9f9; border:1px solid #eee; border-top:none; border-radius:0 0 5px 5px; font-size:0.85em; color:#555;'>This detailed breakdown shows exactly *why* a Watch is active or inactive. It deconstructs the Total Probability score into its component parts: 1) The 1-Hour Forecast (is the future bad?), 2) The Cooling/heating Rate (is the trend dangerous?), and 3) The Baseline Instability (is the current situation already stressed?). This transparency verifies the math behind the prediction.</div></details>"""
             href(name: "toPredMathLink", page: "predictiveMathPage", title: "📘 Learn how Predictive DNA is calculated", description: "Click for Math & Logic Details", width: 12)
         }
 
         // 7. SENSOR HEALTH
         section() {
-        
-            def issues = getSensorIssues()
-  
-           if (issues.size() > 0) {
+             def issues = getSensorIssues()
+             if (issues.size() > 0) {
                 def html = """<div style='background:#ffebee; border:1px solid #e57373; border-radius:10px; padding:15px; margin-top:10px;'><h3 style='color:#c62828; margin:0 0 10px 0;'>⚠️ SENSOR DRIFT DETECTED</h3>"""
                 issues.each { i -> html += """<div style='color:#b71c1c; font-weight:bold; margin-bottom:5px;'>• ${i}</div>""" }
                 html += "</div>"
@@ -850,36 +807,22 @@ def mainPage() {
             }
         }
 
-        // 8. HAZARD CONTROL CENTER
-        section("""<h2 style='color:#263238; font-weight:900; letter-spacing:1px; border-bottom:3px solid #263238; padding-bottom:5px;'>🛡️ HAZARD CONTROL CENTER</h2>""") {
+        // 8. HAZARD CONTROL CENTER (LIVE)
+        section("""<h2 style='color:#263238; font-weight:900; letter-spacing:1px; border-bottom:3px solid #263238; padding-bottom:5px;'>🛡️ LIVE HAZARD CONTROL CENTER</h2>""") {
             def sLim = stormTriggerPct ?: 60
             def fLim = floodTriggerPct ?: 70
-            def frLim = frostTriggerPct ?: 60
-
-            paragraph """
-                
-<div style='display:flex; justify-content:space-between; align-items:stretch; gap:15px; padding:15px 0;'>
-                ${proHazardBlock("STORM", getNormalizedScore("storm"), sLim, "#d32f2f", state.paiStorm ?: 100, state.testStorm || state.simulateScan, getActiveFactors("storm"))}
-                ${proHazardBlock("FLOOD", getNormalizedScore("flood"), fLim, "#1976d2", state.paiFlood ?: 100, state.testFlood || state.simulateScan, getActiveFactors("flood"))}
-                ${proHazardBlock("FROST", getNormalizedScore("frost"), frLim, "#455a64", state.paiFrost ?: 100, state.testFrost || state.simulateScan, getActiveFactors("frost"))}
-            </div>
-    
-        """
-            paragraph """<div style='font-size:0.75em; color:#546e7a; background:#f5f5f5; padding:10px; border-radius:8px; margin-top:5px; border:1px solid #cfd8dc;'><b>🛡️ DNA AGGREGATION LOGIC:</b> Scores are normalized based on available data. If a sensor is disabled, the algorithm automatically rebalances the remaining weights to 100%.</div>"""
+            def frLim = freezeTriggerPct ?: 60
+            paragraph """<div style='display:flex; justify-content:space-between; align-items:stretch; gap:15px; padding:15px 0;'>
+                ${proHazardBlock("STORM", getNormalizedScore("storm"), sLim, "#d32f2f", state.paiStorm ?: 100, state.testStorm || state.simulateScan, getActiveFactors("storm"), "ALERT")}
+                ${proHazardBlock("FLOOD", getNormalizedScore("flood"), fLim, "#1976d2", state.paiFlood ?: 100, state.testFlood || state.simulateScan, getActiveFactors("flood"), "ALERT")}
+                ${proHazardBlock("FREEZE", getNormalizedScore("freeze"), frLim, "#455a64", state.paiFreeze ?: 100, state.testFreeze || state.simulateScan, getActiveFactors("freeze"), "ALERT")}
+            </div>"""
+            paragraph """<details style='margin-bottom:10px; cursor:pointer;'><summary style='font-weight:bold; color:#455a64; background:#eceff1; padding:8px; border-radius:5px; border:1px solid #cfd8dc;'>ℹ️ GUIDE: Critical Alarm Logic</summary><div style='padding:10px; background:#f9f9f9; border:1px solid #eee; border-top:none; border-radius:0 0 5px 5px; font-size:0.85em; color:#555;'>This is the primary 'Alarm' system. It monitors real-time sensor data against your safety thresholds. The gauges display the 'Normalized Risk Score' (0-100%), which is a weighted average of all active factors (Wind, Rain, Lightning, etc.). When the bar fills past the gray trigger line, the specific Alarm Relay is activated immediately.</div></details>"""
         }
 
         // 9. LOGIC TELEMETRY
         section("<h2 style='color:#37474f; font-weight:bold;'>📡 LOGIC TELEMETRY GRID</h2>") {
-            paragraph """
-            <div style='font-size:0.7em; color:#607d8b; margin-bottom:10px; background:#f5f5f5; padding:10px; border-radius:8px; border:1px solid #e0e0e0;'>
-                <b>📈 TREND DECODER:</b><br>
-                <span style='color:#d32f2f;'>↑ SURGING:</span> Rise > 1.0/hr<br>
-                <span style='color:#e65100;'>↗ RISING:</span> Rise > 0.5/hr<br>
-                <span style='color:#388e3c;'>→ STABLE:</span> Equilibrium<br>
-              
-  <span style='color:#1976d2;'>↓ CRASHING:</span> Drop > 1.0/hr
-            </div>
-            """
+            paragraph """<div style='font-size:0.7em; color:#607d8b; margin-bottom:10px; background:#f5f5f5; padding:10px; border-radius:8px; border:1px solid #e0e0e0;'><b>📈 TREND DECODER:</b><br><span style='color:#d32f2f;'>↑ SURGING:</span> Rise > 1.0/hr<br><span style='color:#e65100;'>↗ RISING:</span> Rise > 0.5/hr<br><span style='color:#388e3c;'>→ STABLE:</span> Equilibrium<br><span style='color:#1976d2;'>↓ CRASHING:</span> Drop > 1.0/hr</div>"""
             paragraph generateLogicGrid()
             href(name: "toDataLogs", page: "dataLogPage", title: "📜 VIEW FULL DATA LOGS", description: "Inspect last 50 data points per sensor", width: 12, style:"text-align:center; border:1px solid #ccc; background:#f0f0f0; border-radius:5px;")
         }
@@ -892,23 +835,24 @@ def mainPage() {
             def r = !excludeRain ? (weatherDevice?.currentValue("rainRate") ?: 0).toDouble() : 0.0
             def h = (weatherDevice?.currentValue("humidity") ?: 0).toDouble()
             def dew = (state.lastDew ?: 0).toDouble().round(1)
-            
-            // [NEW] Visual Readout for Locked vs Live
             def gPeak = state.lockedGust ?: g
             def wPeak = state.lockedWind ?: w
+            def rPeak = state.lockedRain ?: r
             
             paragraph """<div style='background:#fbe9e7; color:#bf360c; padding:10px; border-radius:5px; border:1px solid #ffccbc; font-size:0.85em; display:flex; justify-content:space-around;'>
                 <div><b>💨 LIVE GUST</b><br><span style='font-size:1.2em;'>${g} mph</span></div>
                 <div style='border-left:1px solid #ffab91; padding-left:15px;'><b>🔒 RISK LATCH (60m)</b><br><span style='font-size:1.2em; font-weight:bold;'>${gPeak} mph</span></div>
+            </div>
+            <div style='background:#e3f2fd; color:#0d47a1; padding:10px; border-radius:5px; border:1px solid #90caf9; font-size:0.85em; display:flex; justify-content:space-around; margin-top:5px;'>
+                <div><b>🌧️ LIVE RAIN</b><br><span style='font-size:1.2em;'>${r} in/hr</span></div>
+                <div style='border-left:1px solid #90caf9; padding-left:15px;'><b>🔒 RISK LATCH (60m)</b><br><span style='font-size:1.2em; font-weight:bold;'>${rPeak} in/hr</span></div>
             </div>"""
     
- 
             def lCount = state.lastLit ?: 0
             def lPrev = (state.histLight && state.histLight.size() > 1) ? state.histLight[1].value : 0
             def lDelta = lCount - lPrev
             if (lDelta < 0) lDelta = lCount
-        
-            def fT_Thresh = (frostTempThreshold ?: 37).toDouble()
+            def fT_Thresh = (freezeTempThreshold ?: 37).toDouble()
             def fT_Bool = (state.fTempWeight ?: 0) > 0 ? "[TRUE]" : "[FALSE]"
             def storm_Bool = (state.wGustWeight ?: 0) > 0 ? "[TRUE]" : "[FALSE]"
             def speed_Bool = (state.wSpeedWeight ?: 0) > 0 ? "[TRUE]" : "[FALSE]"
@@ -916,12 +860,9 @@ def mainPage() {
             def surge_Bool = (state.lWeight ?: 0) > 0 ? "[TRUE]" : "[FALSE]"
             def wetBulb_Bool = ((state.wetBulb ?: 99) <= 32.0) ? "[TRUE]" : "[FALSE]"
 
-            // FIX: Using DEFAULT weights for display matching 100-pt scale
-            // Gust(15), Rain(10), Light(20), Prox(15), Dew(5), Dark(20), Vector(10)
             paragraph generateDetailedTable("🌪️ STORM DNA", [
                 [label: "Wind Gust", value: (state.wGustWeight ?: 0), max: getTunedWeight("gust"), calc: "${storm_Bool} ${gPeak}mph (60m Latch) >= ${(gustVal ?: 35).toDouble()}mph", why: "Kinetic Energy: Structural stress.", exclude: excludeWind],
-  
-              [label: "Rain Rate", value: (state.sRainWeight ?: 0), max: getTunedWeight("rain"), calc: "${r}in/hr >= ${(stormRainThreshold ?: 1.0).toDouble()}in/hr", why: "Mass Loading: Adds weight to wind force.", exclude: excludeRain],
+                [label: "Rain Rate", value: (state.sRainWeight ?: 0), max: getTunedWeight("rain"), calc: "${rPeak}in/hr (60m Latch) >= ${(stormRainThreshold ?: 1.0).toDouble()}in/hr", why: "Mass Loading: Adds weight to wind force.", exclude: excludeRain],
                 [label: "Lightning Surge", value: (state.lWeight ?: 0), max: getTunedWeight("light"), calc: "${surge_Bool} Delta +${lDelta} >= ${(lightningJumpVal ?: 2)}", why: "Electrical Core: Active strike surge.", exclude: excludeLightning || (state.lightningStale && !state.stormOverrideActive)],
                 [label: "Proximity", value: (state.proxWeight ?: 0), max: getTunedWeight("prox"), calc: "${prox_Bool} Dist < ${(lightningDistVal ?: 10)}mi", why: "Hazard Vector: Close range strikes.", exclude: excludeLightning || (state.lightningStale && !state.stormOverrideActive)],
                 [label: "Atm. Energy", value: (state.dWeight ?: 0), max: getTunedWeight("dew"), calc: "${dew}°F >= ${(dewPointVal ?: 65).toDouble()}°F", why: "Latent Heat: Moisture fuel for updrafts.", exclude: false],
@@ -931,28 +872,56 @@ def mainPage() {
 
             paragraph generateDetailedTable("🌊 FLOOD DNA", [
                 [label: "Flash Runoff", value: (state.frrWeight ?: 0), max: getTunedWeight("runoff"), calc: "${r}in/hr >= ${(floodRainRate ?: 2.0).toDouble()}in/hr", why: "Surface Velocity: Exceeds drain capacity.", exclude: excludeRain],
-               
- [label: "Soil Sat.", value: (state.fsWeight ?: 0), max: getTunedWeight("sat"), calc: "${state.drainageLvl}% >= ${(soilSatLimit ?: 80)}%", why: "Hydraulic Model: Soil bucket full.", exclude: excludeRain]
+                [label: "Soil Sat.", value: (state.fsWeight ?: 0), max: getTunedWeight("sat"), calc: "${state.drainageLvl}% >= ${(soilSatLimit ?: 80)}%", why: "Hydraulic Model: Soil bucket full.", exclude: excludeRain]
             ], "#1976d2", state.testFlood)
 
-            def fVaporMax = (frostVaporTempMax ?: 50).toDouble()
-            paragraph generateDetailedTable("❄️ FROST DNA", [
-                [label: "Boundary Temp", value: (state.fTempWeight ?: 0), max: getTunedWeight("ftemp"), calc: "${fT_Bool} ${t}°F <= ${fT_Thresh}°F", why: "Surface Chill: Ground is colder than air.", exclude: false],
-        
-        [label: "Vapor Load", value: (state.fHumWeight ?: 0), max: getTunedWeight("fhum"), calc: "${h}% >= ${(frostHumThreshold ?: 70)}% & ${t}°F < ${fVaporMax.toInteger()}°F", why: "Ice Deposition: Crystal growth fuel.", exclude: false],
-                [label: "Wet Bulb", value: (wetBulb_Bool == "[TRUE]" ? 100 : 0), max: 100, calc: "${wetBulb_Bool} ${state.wetBulb}°F <= 32°F", why: "Evaporative Cooling: Risk to wet vegetation.", exclude: false],
+            def fVaporMax = (freezeVaporTempMax ?: 50).toDouble()
+            paragraph generateDetailedTable("❄️ FREEZE DNA", [
+                [label: "Boundary Temp", value: (state.fTempWeight ?: 0), max: getTunedWeight("ftemp"), calc: "${fT_Bool} ${t}°F <= ${fT_Thresh}°F", why: "Surface Freeze: Ground colder than air.", exclude: false],
+                [label: "Vapor Load", value: (state.fHumWeight ?: 0), max: getTunedWeight("fhum"), calc: "${h}% >= ${(freezeHumThreshold ?: 70)}% & ${t}°F < ${fVaporMax.toInteger()}°F", why: "Ice Deposition: Pipe freeze risk.", exclude: false],
+                [label: "Wet Bulb", value: (wetBulb_Bool == "[TRUE]" ? 100 : 0), max: 100, calc: "${wetBulb_Bool} ${state.wetBulb}°F <= 32°F", why: "Evaporative Cooling: Rapid pipe freezing.", exclude: false],
                 [label: "Cold Advection", value: (state.fDirWeight ?: 0), max: getTunedWeight("fcold"), calc: "Wind from North (315°-45°)", why: "Air Mass: Arctic air intake.", exclude: excludeWind],
                 [label: "Thermal Crash", value: (state.tWeightDrop ?: 0), max: getTunedWeight("fcrash"), calc: "Drop >= ${(tempDropVal ?: 4).toDouble()}°F/hr", why: "Radiative Cooling: Rapid heat loss.", exclude: false]
-       
-      ], "#455a64", state.testFrost)
- 
+            ], "#455a64", state.testFreeze)
+            
+            paragraph """<details style='margin-bottom:10px; cursor:pointer;'><summary style='font-weight:bold; color:#004d40; background:#e0f2f1; padding:8px; border-radius:5px; border:1px solid #b2dfdb;'>ℹ️ GUIDE: Forensic DNA Model</summary><div style='padding:10px; background:#f9f9f9; border:1px solid #eee; border-top:none; border-radius:0 0 5px 5px; font-size:0.85em; color:#555;'>This table reveals the 'molecular structure' of the live hazard score. It lists every active risk factor (e.g., 'Wind Gust', 'Soil Saturation', 'Wet Bulb'), showing how much weight each contributes to the total alarm score. It also displays the raw math (Boolean Logic) used to validate each factor, allowing you to trust that the system is reacting to real physics, not false positives.</div></details>"""
             href(name: "toForensicMathLink", page: "forensicMathPage", title: "📘 Learn how Forensic DNA is calculated", description: "Click for Normalization & Weight Logic", width: 12)
         }
       
-        section() {
-           href(name: "reloadPage", page: "mainPage", title: "🔄 RELOAD PAGE", description: "Force UI Redraw", width: 12, style: "text-align:center;")
+        // --- BUTTON GRID ALIGNMENT ---
+        section("<h2 style='color:#37474f; font-weight:bold; border-top: 2px solid #ccc; padding-top: 10px;'>🎮 CONTROL DECK</h2>") {
+            href(name: "toConfig", page: "configurePage", title: "🛠️ DEVICE SETUP", description: "Sensors & Relays", width: 4)
+            href(name: "toTrust", page: "trustPage", title: "🛡️ TRUST", description: "Diagnostics", width: 4)
+            href(name: "toCalibration", page: "calibrationPage", title: "⚙️ SETTINGS", description: "Thresholds", width: 4)
+            section("⚙️ SYSTEM CONTROLS", hideable: true, hidden: true) {
+                def muteState = ((state.globalMuteExpires ?: 0) > now()) ? "🔊 UNMUTE SYSTEM" : "🔇 MUTE ALL (24H)"
+                input "muteAllBtn", "button", title: muteState, width: 3, submitOnChange: true
+                input "refreshBtn", "button", title: "🔄 RESTART & POLL", width: 3, submitOnChange: true
+                input "forceSimBtn", "button", title: "🧪 SIMULATE DATA", width: 3, submitOnChange: true
+                input "reloadPageBtn", "button", title: "🔄 REFRESH DASHBOARD VIEW", width: 3
+                input "clearBtn", "button", title: "❌ CLEAR ALL ALERTS & RESET", width: 12, submitOnChange: true
+            }
+            section("🧪 ALARM SIMULATION", hideable: true, hidden: true) {
+                input "testStormBtn", "button", title: "🌪️ TEST STORM", width: 4, submitOnChange: true
+                input "testFloodBtn", "button", title: "🌊 TEST FLOOD", width: 4, submitOnChange: true
+                input "testFreezeBtn", "button", title: "❄️ TEST FREEZE", width: 4, submitOnChange: true
+            }
+            section("🔮 WATCH SIMULATION", hideable: true, hidden: true) {
+                input "testPredStormBtn", "button", title: "🔮 TEST PRE-STORM", width: 4, submitOnChange: true
+                input "testPredFloodBtn", "button", title: "🔮 TEST PRE-FLOOD", width: 4, submitOnChange: true
+                input "testPredFreezeBtn", "button", title: "🔮 TEST PRE-FREEZE", width: 4, submitOnChange: true
+            }
         }
-  
+
+        // 11. DASHBOARD LINK (VERY BOTTOM)
+        if (dashLink) {
+            section() {
+                def label = dashLabel ?: "RETURN TO DASHBOARD"
+                paragraph """<div style='background:#ffffff; border:1px solid #eee; border-radius:10px; box-shadow:0 2px 5px rgba(0,0,0,0.05); padding:15px; margin-top:20px; text-align:center;'>
+                    <a href='${dashLink}' style='display:inline-block; text-decoration:none; color:#333; background-color:#e0e0e0; border:1px solid #bdbdbd; padding:10px 25px; border-radius:5px; font-weight:bold; font-family:sans-serif; font-size:0.9em; box-shadow:0 1px 3px rgba(0,0,0,0.1);'>🏠 ${label}</a>
+                </div>"""
+            }
+        }
    }
 }
 
@@ -965,22 +934,22 @@ def pollWeatherStation(evt = null) {
         state.narrative = "🔴 SYSTEM DISABLED BY MASTER SWITCH."
         controlSwitch?.off()
         floodSwitch?.off()
-        frostSwitch?.off()
+        freezeSwitch?.off()
         predStormSwitch?.off()
         predFloodSwitch?.off()
-        predFrostSwitch?.off()
+        predFreezeSwitch?.off()
         return
     }
     
-    // [NEW] Check External Pause Switch
+    // Check External Pause Switch
     if (settings.pauseSwitch && settings.pauseSwitch.currentSwitch == "on" && !state.testMode) {
         state.narrative = "🔴 SYSTEM PAUSED BY EXTERNAL SWITCH."
-        controlSwitch?.off()
-        floodSwitch?.off()
-        frostSwitch?.off()
-        predStormSwitch?.off()
-        predFloodSwitch?.off()
-        predFrostSwitch?.off()
+        return
+    }
+    
+    // Check Global Mute
+    if ((state.globalMuteExpires ?: 0) > now()) {
+        state.narrative = "🔇 SYSTEM MUTED UNTIL ${new Date(state.globalMuteExpires).format('HH:mm')}"
         return
     }
 
@@ -988,94 +957,67 @@ def pollWeatherStation(evt = null) {
     if (lastActivity && (now() - lastActivity.time) > 3600000) { // 1 Hour
         log.warn "⚠️ STATION OFFLINE: Data is stale (>1h). Entering Safe Mode."
         state.narrative = "🔴 CRITICAL: STATION DATA STALE. LOGIC HALTED. LAST UPDATE: ${new Date(lastActivity.time).format('h:mm a', location.timeZone)}"
-        controlSwitch?.off()
-        floodSwitch?.off()
-        frostSwitch?.off()
-        predStormSwitch?.off()
-        predFloodSwitch?.off()
-        predFrostSwitch?.off()
+        controlSwitch?.off(); floodSwitch?.off(); freezeSwitch?.off()
+        predStormSwitch?.off(); predFloodSwitch?.off(); predFreezeSwitch?.off()
         return // Halt Logic
     }
 
     try {
         state.lastPollStr = new Date().format("h:mm:ss a", location.timeZone)
      
- 
         // --- 1. SIMULATION GENERATOR ---
         if (state.simulateScan && state.simTemp == null) {
             def rnd = new Random()
-            state.simTemp = rnd.nextInt(70) + 15;
-            state.simWind = rnd.nextInt(60); state.simRain = rnd.nextInt(50) / 10.0
-            state.simHum = rnd.nextInt(50) + 50;
-            state.simGust = state.simWind + 10; state.simLit = rnd.nextInt(20); state.simLux = rnd.nextInt(5000)
+            state.simTemp = rnd.nextInt(70) + 15; state.simWind = rnd.nextInt(60); state.simRain = rnd.nextInt(50) / 10.0
+            state.simHum = rnd.nextInt(50) + 50; state.simGust = state.simWind + 10; state.simLit = rnd.nextInt(20); state.simLux = rnd.nextInt(5000)
             state.lastWindDir = 225
         }
         
         // --- 2. DATA INGESTION ---
-        def t = state.simulateScan ? (state.simTemp + (Math.random() * 0.2 - 0.1)) : (state.testFrost ? 20.0 : ((weatherDevice?.currentValue("temperature") ?: 0).toDouble() + (tempOffset ?: 0.0)))
+        def t = state.simulateScan ? (state.simTemp + (Math.random() * 0.2 - 0.1)) : (state.testFreeze ? 20.0 : ((weatherDevice?.currentValue("temperature") ?: 0).toDouble() + (tempOffset ?: 0.0)))
         def h = state.simulateScan ? state.simHum : ((weatherDevice?.currentValue("humidity") ?: 0).toDouble() + (humOffset ?: 0))
         def r = state.simulateScan ? state.simRain : (state.testFlood ? 4.0 : (!excludeRain ? (weatherDevice?.currentValue("rainRate") ?: 0).toDouble() : 0.0))
-        
         def g = state.simulateScan ? state.simGust : (state.testStorm ? 60.0 : (!excludeWind ? (weatherDevice?.currentValue("windGust") ?: 0).toDouble() : 0.0))
         def w = state.simulateScan ? state.simWind : (state.testStorm ? 30.0 : (!excludeWind ? (weatherDevice?.currentValue("windSpeed") ?: 0).toDouble() : 0.0))
         def wDir = state.simulateScan ? 225 : (state.testStorm ? 225 : (!excludeWind ? (weatherDevice?.currentValue("windDirection") ?: 0).toInteger() : 0))
         
-        // [RESTORED] Check Anomalies before processing
-        if (checkAnomalies(t, g, r)) {
-            return // Skip this poll to prevent spike damage
-        }
+        // Check Anomalies before processing
+        if (checkAnomalies(t, g, r)) { return }
         
-        def l = 0;
-        def lDist = 999
+        def l = 0; def lDist = 999
         state.lightningStale = false 
 
-        if (state.simulateScan) {
-            l = state.simLit;
-            lDist = 5
-        } else if (state.testStorm) {
-            l = 10;
-            lDist = 5
-        } else {
+        if (state.simulateScan) { l = state.simLit; lDist = 5 } 
+        else if (state.testStorm) { l = 10; lDist = 5 } 
+        else {
             def checkFreshness = { dev, attr ->
                 def s = dev.currentState(attr)
-                if (s && s.date && (now() - s.date.time) > 3600000) {
-                     return false 
-  
-              }
+                if (s && s.date && (now() - s.date.time) > 3600000) { return false }
                 return true
             }
 
             if (extLightning) {
                 l = (extLightning.currentValue("lightningCount") ?: extLightning.currentValue("lightning") ?: 0).toInteger()
                 def rawDist = (extLightning.currentValue("lightningDistance") ?: 999).toInteger()
-                if (!checkFreshness(extLightning, "lightningCount")) { 
-                    state.lightningStale = true;
-// Note: We do NOT zero out 'l' here yet, to allow for override logic
-                }
+                if (!checkFreshness(extLightning, "lightningCount")) { state.lightningStale = true; }
                 lDist = rawDist
             } else if (!excludeLightning) {
                 l = (weatherDevice?.currentValue("lightning_num") ?: weatherDevice?.currentValue("lightning") ?: 0).toInteger()
-              
                 def distAttr = "lightning_distance"
                 if (weatherDevice.currentValue("lightningDistance") != null) distAttr = "lightningDistance"
                 def rawDist = (weatherDevice?.currentValue(distAttr) ?: 999).toInteger()
                 if (!checkFreshness(weatherDevice, "lightning_num") && !checkFreshness(weatherDevice, "lightning")) {
-                
                     state.lightningStale = true
-                    // Note: We do NOT zero out 'l' here yet, to allow for override logic
                 }
                 lDist = rawDist
-          
-              }
+            }
         }
-      
+    
         def wc = state.simulateScan ? (t - 10).toDouble().round(1) : ((weatherDevice?.currentValue("windChill") ?: t).toDouble()).round(1)
         def lux = state.simulateScan ? state.simLux : (state.testStorm ? 200 : ((luxSensor && !excludeLux) ? (luxSensor.currentValue("illuminance") ?: 0).toInteger() : 0))
 
-        state.lastT = t;
-        state.lastH = h; state.lastG = g; state.lastWind = w; state.lastR = r
-        state.lastWindDir = wDir;
-        state.lastLit = l; state.lastLux = lux; state.lastWC = wc
+        state.lastT = t; state.lastH = h; state.lastG = g; state.lastWind = w; state.lastR = r
+        state.lastWindDir = wDir; state.lastLit = l; state.lastLux = lux; state.lastWC = wc
         state.lastLDist = lDist
 
         state.feelsLike = calculateFullHeatIndex(t, h)
@@ -1086,16 +1028,13 @@ def pollWeatherStation(evt = null) {
         if (g > state.dayHighGust) state.dayHighGust = g
         if (w > state.dayHighWind) state.dayHighWind = w
 
-    
-        double tC = (t - 32) * 5 / 9;
-        double rh = h / 100.0
+        double tC = (t - 32) * 5 / 9; double rh = h / 100.0
         if (rh > 0) {
             double alpha = Math.log(rh) + (17.62 * tC) / (243.12 + tC)
             double dpC = (243.12 * alpha) / (17.62 - alpha)
             state.lastDew = ((dpC * 9 / 5) + 32).toDouble().round(1)
         } else { state.lastDew = 0.0 }
 
-     
         def useAuto = (enableAutoState == true || enableAutoState == null)
         def pVars = (useAuto && autoState) ? getClimateProfile(autoState) : [gust:35, wind:20, rain:1.0, dew:65, soil:"Silt", flood:2.0, freeze:37, hum:70]
         
@@ -1104,40 +1043,30 @@ def pollWeatherStation(evt = null) {
         state.drainageLvl = (((r * 2.0) / (baseSat * evFactor)) * 100).toInteger()
         if (state.drainageLvl > 100) state.drainageLvl = 100
 
-        // --- 4. HISTORY TRACKING (UPDATED WITH SMART COMPRESSION) ---
-        updateHistory("histTemp", t);
-        updateHistory("histHum", h); 
-        updateHistory("histGust", g); 
-        updateHistory("histWind", w); 
+        // --- 4. HISTORY TRACKING ---
+        updateHistory("histTemp", t); updateHistory("histHum", h); 
+        updateHistory("histGust", g); updateHistory("histWind", w); 
         updateHistory("histRain", r); updateHistory("histDew", state.lastDew)
-        updateHistory("histChill", wc);
-        updateHistory("histLight", l); updateHistory("histSat", state.drainageLvl); updateHistory("histLux", lux);
+        updateHistory("histChill", wc); updateHistory("histLight", l); 
+        updateHistory("histSat", state.drainageLvl); updateHistory("histLux", lux);
         updateHistory("histBat", weatherDevice.currentValue("battery") ?: 100)
         
-        // --- [NEW] PEAK LATCH LOGIC (60 MINS) ---
-        // Used for Logic Scoring Only
+        // --- PEAK LATCH LOGIC (60 MINS) ---
         def gMax = getPeakLatching(state.histGust, g, 60)
         def wMax = getPeakLatching(state.histWind, w, 60)
-        // Store for UI display
-        state.lockedGust = gMax
-      
-        state.lockedWind = wMax
+        def rMax = getPeakLatching(state.histRain, r, 60)
+        state.lockedGust = gMax; state.lockedWind = wMax; state.lockedRain = rMax
 
         // --- 5. RATE OF CHANGE (TIME AGNOSTIC) ---
-        state.tRate = 0.0;
-        state.hRate = 0.0; state.dRate = 0.0; state.wRate = 0.0; state.gRate = 0.0
-        
-        // Define Window from Settings
+        state.tRate = 0.0; state.hRate = 0.0; state.dRate = 0.0; state.wRate = 0.0; state.gRate = 0.0
         def trendMinutes = (trendTimeSelect ?: "60").toInteger()
         def trendMs = trendMinutes * 60000
 
         def calcRate = { histList ->
             if (histList && histList.size() >= 2) {
-            
                 def nEntry = histList[0]
                 def nVal = nEntry instanceof Map ? nEntry.value : nEntry
                 def nTime = nEntry instanceof Map ? nEntry.time : now()
-                // Use Dynamic Window instead of hardcoded 2700000 (45m)
                 def oEntry = histList.find { it instanceof Map && (nTime - it.time) >= trendMs }
                 if (!oEntry) oEntry = histList.last()
                 def oVal = oEntry instanceof Map ? oEntry.value : oEntry
@@ -1154,83 +1083,63 @@ def pollWeatherStation(evt = null) {
         state.wRate = calcRate(state.histWind)
         state.dRate = calcRate(state.histDew)
 
-   
-     // --- 6. FORENSIC DNA ENGINE ---
-        
-        // A. FROST LOGIC (Uses Helper)
-        def wF_Temp = getTunedWeight("ftemp")
-        def wF_Hum = getTunedWeight("fhum")
-        def wF_Crash = getTunedWeight("fcrash")
-        def wColdAdv = getTunedWeight("fcold")
-        def fT_Thresh = (frostTempThreshold ?: 37).toDouble()
-        def fH_Thresh = (frostHumThreshold ?: 70).toDouble()
+        // --- 6. FORENSIC DNA ENGINE ---
+        // A. FREEZE LOGIC
+        def wF_Temp = getTunedWeight("ftemp"); def wF_Hum = getTunedWeight("fhum")
+        def wF_Crash = getTunedWeight("fcrash"); def wColdAdv = getTunedWeight("fcold")
+        def fT_Thresh = (freezeTempThreshold ?: 37).toDouble()
+        def fH_Thresh = (freezeHumThreshold ?: 70).toDouble()
         def fDrop_Thresh = (tempDropVal ?: 4.0).toDouble()
         def tempBonus = (t < (fT_Thresh - 5)) ? 25 : 0
-        def fVaporMax = (frostVaporTempMax ?: 50).toDouble()
+        def fVaporMax = (freezeVaporTempMax ?: 50).toDouble()
 
         state.fTempWeight = (t <= fT_Thresh) ? (wF_Temp + tempBonus) : 0
         state.fHumWeight = (h >= fH_Thresh && t <= fVaporMax) ? wF_Hum : 0
         state.tWeightDrop = (state.tRate <= -fDrop_Thresh) ? wF_Crash : 0
         boolean isNorth = !excludeWind && (wDir >= 315 || wDir <= 45)
         state.fDirWeight = (isNorth && t < 45) ? wColdAdv : 0
-        state.rawFrostScore = state.fTempWeight + state.fHumWeight + state.tWeightDrop + state.fDirWeight
-        state.frostScore = getNormalizedScore("frost")
+        state.rawFreezeScore = state.fTempWeight + state.fHumWeight + state.tWeightDrop + state.fDirWeight
+        state.freezeScore = getNormalizedScore("freeze")
 
-        // B. STORM LOGIC (Uses Helper)
-        // FIX: Replaced direct weight access with 'getTunedWeight' to enforce 100-pt scale
-        def wGust = getTunedWeight("gust")
-        def wSpeed = getTunedWeight("wind")
-        def wRain = getTunedWeight("rain")
-       
-        def wLight = getTunedWeight("light")
-        def wProx = getTunedWeight("prox")
-        def wDew = getTunedWeight("dew")
-        def wDark = getTunedWeight("dark")
+        // B. STORM LOGIC
+        def wGust = getTunedWeight("gust"); def wSpeed = getTunedWeight("wind"); def wRain = getTunedWeight("rain")
+        def wLight = getTunedWeight("light"); def wProx = getTunedWeight("prox"); def wDew = getTunedWeight("dew"); def wDark = getTunedWeight("dark")
         
-        // Use gMax and wMax (20m Latch) instead of instantaneous g and w for scoring
         state.wGustWeight = (gMax >= (gustVal ?: 35).toDouble()) ? wGust : 0
         state.wSpeedWeight = (wMax >= (windVal ?: 20).toDouble()) ? wSpeed : 0
-        state.sRainWeight = (r >= (stormRainThreshold ?: 1.0).toDouble()) ? wRain : 0
-        
+        state.sRainWeight = (rMax >= (stormRainThreshold ?: 1.0).toDouble()) ? wRain : 0
         state.dWeight = (state.lastDew >= (dewPointVal ?: 65.0).toDouble()) ? wDew : 0
+        
         def luxAvg = 0;
-        if (state.histLux.size()>0) luxAvg = state.histLux.collect{it instanceof Map?it.value:it}.sum()/state.histLux.size()
+        if (state.histLux.size() > 0) {
+            def recentLux = state.histLux.findAll { entry ->
+                def luxTime = entry instanceof Map ? entry.time : 0
+                return (now() - luxTime) <= trendMs
+            }.collect { it instanceof Map ? it.value : it }
+            if (recentLux.size() > 0) luxAvg = recentLux.sum() / recentLux.size()
+        }
         state.luxWeight = (!excludeLux && lux > 100 && (luxAvg - lux) > (darkSkyDrop ?: 3000).toDouble()) ? wDark : 0
         boolean badWind = !excludeWind && (wDir >= (badWindStart?:225).toInteger() && wDir <= (badWindEnd?:315).toInteger())
         state.wDirWeight = (badWind && g > 10) ? getTunedWeight("vector") : 0
         
-        // --- DNA OVERRIDE LOGIC START ---
-        // 1. Calculate Score WITHOUT Lightning first to check if > 40%
+        // DNA OVERRIDE LOGIC
         def nonLightningRaw = state.wGustWeight + state.wSpeedWeight + state.sRainWeight + state.dWeight + state.luxWeight + state.wDirWeight
         def nonLightningMax = getTunedWeight("gust") + getTunedWeight("wind") + getTunedWeight("rain") + getTunedWeight("dew") + getTunedWeight("dark") + getTunedWeight("vector")
-        
-       
         def nonLightPct = (nonLightningMax > 0) ? ((nonLightningRaw / nonLightningMax) * 100) : 0
         
-        // 2. Determine Validity (If Stale but Score > 40%, we allow it)
         boolean useLightning = true
         state.stormOverrideActive = false
-        
         if (state.lightningStale) {
             if (nonLightPct > 40.0) {
-   
-        
                 useLightning = true
                 state.stormOverrideActive = true
                 state.paiStormWhy = "Stale Data Trusted (DNA > 40%)"
             } else {
                 useLightning = false
-         
-   
-        
                 state.paiStormWhy = "Data Stale (>1h)"
             }
-        } else {
-             state.paiStormWhy = "Nominal"
-        }
-        
-        // 3. Calculate Lightning Weights based on validity
- 
+        } else { state.paiStormWhy = "Nominal" }
+  
         def prevL = (state.histLight && state.histLight.size() > 1) ? state.histLight[1].value : 0
         def lDelta = l - prevL
         if (lDelta < 0) lDelta = l
@@ -1240,20 +1149,14 @@ def pollWeatherStation(evt = null) {
             state.lWeight = (lDelta >= lSurgeThreshold) ? wLight : 0
             state.proxWeight = (lDist <= (lightningDistVal ?: 10).toInteger() && l > 0) ? wProx : 0
         } else {
-            state.lWeight = 0
-            state.proxWeight = 0
-            // Reset lDist if stale and not overridden for safety display
-            state.lastLDist = 999 
+            state.lWeight = 0; state.proxWeight = 0; state.lastLDist = 999 
         }
-        // --- DNA OVERRIDE LOGIC END ---
 
- 
         state.rawStormScore = state.wGustWeight + state.wSpeedWeight + state.sRainWeight + state.lWeight + state.proxWeight + state.dWeight + state.luxWeight + state.wDirWeight
         state.currentScore = getNormalizedScore("storm")
         
-        // C. FLOOD LOGIC (Uses Helper)
-        def wRunoff = getTunedWeight("runoff")
-        def wSat = getTunedWeight("sat")
+        // C. FLOOD LOGIC
+        def wRunoff = getTunedWeight("runoff"); def wSat = getTunedWeight("sat")
         state.frrWeight = (r >= (floodRainRate ?: 2.0).toDouble()) ? wRunoff : 0
         state.fsWeight = (state.drainageLvl >= (soilSatLimit ?: 80).toInteger()) ? wSat : 0
         state.rawFloodScore = state.frrWeight + state.fsWeight
@@ -1261,58 +1164,45 @@ def pollWeatherStation(evt = null) {
 
         // 7. FINAL PROCESSING
         calculatePai()
-        
-        // [NEW] Update Score History for Timers
         updateHistory("histStormScore", state.currentScore)
         updateHistory("histFloodScore", state.floodScore)
-        updateHistory("histFrostScore", state.frostScore)
-        
-        // [NEW] Calculate Countdown Timers
+        updateHistory("histFreezeScore", state.freezeScore)
         calculateCountdowns(calcRate)
-        
         checkPredictions()
         checkTriggers()
+      
         buildTacticalReport()
         
     } catch(e) { log.error "Poll Error: ${e}" }
 }
 
 def calculateCountdowns(calcRateFunc) {
-    // 1. Calculate Rates
     def sRate = calcRateFunc(state.histStormScore)
     def fRate = calcRateFunc(state.histFloodScore)
-    def frRate = calcRateFunc(state.histFrostScore)
-    
-    // 2. Define Thresholds (Local Vars)
+    def frRate = calcRateFunc(state.histFreezeScore)
     def sLim = (stormTriggerPct ?: 60).toDouble()
     def fLim = (floodTriggerPct ?: 70).toDouble()
-    def frLim = (frostTriggerPct ?: 60).toDouble()
+    def frLim = (freezeTriggerPct ?: 60).toDouble()
     def hyst = (hysteresisVal ?: 5).toDouble()
     
-    // 3. Helper to Calc Time
     def calcTime = { current, limit, rate, isClearing ->
         if (isClearing) {
-            // How long until we drop below (Limit - Hyst)
             def target = limit - hyst
             if (rate >= 0 || current <= target) return -1
             return (current - target) / Math.abs(rate) * 60 // Minutes
         } else {
-            // How long until we rise above Limit
             if (rate <= 0 || current >= limit) return -1
             return (limit - current) / rate * 60 // Minutes
-    
-        }
+         }
     }
-    
-    // 4. Calculate for Each (Store in State)
-    state.stormActive = (controlSwitch && controlSwitch.currentSwitch == "on")
+    state.stormActive = (state.activeEventStart && state.activeEventStart['storm'] > 0)
     state.timeToStorm = calcTime(state.currentScore, sLim, sRate, state.stormActive)
     
-    state.floodActive = (floodSwitch && floodSwitch.currentSwitch == "on")
+    state.floodActive = (state.activeEventStart && state.activeEventStart['flood'] > 0)
     state.timeToFlood = calcTime(state.floodScore, fLim, fRate, state.floodActive)
     
-    state.frostActive = (frostSwitch && frostSwitch.currentSwitch == "on")
-    state.timeToFrost = calcTime(state.frostScore, frLim, frRate, state.frostActive)
+    state.freezeActive = (state.activeEventStart && state.activeEventStart['freeze'] > 0)
+    state.timeToFreeze = calcTime(state.freezeScore, frLim, frRate, state.freezeActive)
 }
 
 // =================================================================================================
@@ -1323,86 +1213,59 @@ def checkPredictions() {
     def pT = ((state.lastT ?: 0.0) + (state.tRate ?: 0.0)).toDouble().round(1)
     def pH = ((state.lastH ?: 0.0) + (state.hRate ?: 0.0)).toDouble().round(0)
     def pD = ((state.lastDew ?: 0.0) + (state.dRate ?: 0.0)).toDouble().round(1)
-    
-    // PREDICTIVE DNA: USE 20m LATCH
-    def g = state.lastG ?: 0.0
-    def w = state.lastWind ?: 0.0
+    def g = state.lastG ?: 0.0; def w = state.lastWind ?: 0.0
     def gMax = getPeakLatching(state.histGust, g, 20)
     def wMax = getPeakLatching(state.histWind, w, 20)
-    
-    // Calculate raw prediction (Current + Rate)
- 
-      
     def rawPredG = (g + (state.gRate ?: 0.0)).toDouble().round(1)
     def rawPredW = (w + (state.wRate ?: 0.0)).toDouble().round(1)
-
-    // LOCK LOGIC: Prediction should be at least as high as the Latched Max.
     def pG = (rawPredG > gMax) ? rawPredG : gMax
     def pW = (rawPredW > wMax) ? rawPredW : wMax
-    
     def pR = (state.lastR ?: 0.0).toDouble()
-    if (pG < 0) pG = 0;
-    if (pW < 0) pW = 0; if (pH > 100) pH = 100
+    if (pG < 0) pG = 0; if (pW < 0) pW = 0; if (pH > 100) pH = 100
     
     def useAuto = (enableAutoState == true || enableAutoState == null)
     def p = (useAuto && autoState) ? getClimateProfile(autoState) : [gust:35, wind:20, rain:1.0, dew:65, soil:"Silt", flood:2.0, freeze:37, hum:70]
     
     def pGustVal = predGustVal != null ? predGustVal.toDouble() : (gustVal != null ? gustVal.toDouble() : p.gust.toDouble())
-    def pFrostVal = predFrostTempVal != null ? predFrostTempVal.toDouble() : (frostTempThreshold != null ? frostTempThreshold.toDouble() : p.freeze.toDouble())
+    def pFreezeVal = predFreezeTempVal != null ? predFreezeTempVal.toDouble() : (freezeTempThreshold != null ? freezeTempThreshold.toDouble() : p.freeze.toDouble())
     def pLimit = predStormTriggerPct ?: 50
     
     if (state.testPredStorm) pG = pGustVal + 20
-    if (state.testPredFrost) pT = pFrostVal - 5
+    if (state.testPredFreeze) pT = pFreezeVal - 5
     
-    def stormStat = "STABLE";
-    def stormCol = "#43a047"
+    def stormStat = "STABLE"; def stormCol = "#43a047"
     if (pG > pGustVal || (state.currentScore > pLimit)) { stormStat = "RISING"; stormCol = "#ff9800" }
     if (pG > (pGustVal + 15) || (state.currentScore > 75)) { stormStat = "HIGH"; stormCol = "#d32f2f" }
     if (state.testPredStorm) { stormStat = "PRE-ALERT"; stormCol = "#ff9800" }
     
-    def floodStat = "STABLE";
-    def floodCol = "#43a047"
+    def floodStat = "STABLE"; def floodCol = "#43a047"
     if (state.floodScore > (predFloodTriggerPct ?: 50)) { floodStat = "RISING"; floodCol = "#ff9800" }
     if (state.floodScore > 75) { floodStat = "HIGH"; floodCol = "#d32f2f" }
     if (state.testPredFlood) { floodStat = "PRE-ALERT"; floodCol = "#ff9800" }
     
-    def frostStat = "STABLE";
-    def frostCol = "#43a047"
-    if (pT < pFrostVal || state.frostScore > (predFrostTriggerPct ?: 50)) { frostStat = "RISK"; frostCol = "#ff9800" }
-    if (pT < 32 || state.frostScore > 75) { frostStat = "FREEZE"; frostCol = "#d32f2f" }
-    if (state.testPredFrost) { frostStat = "PRE-ALERT"; frostCol = "#ff9800" }
+    def freezeStat = "STABLE"; def freezeCol = "#43a047"
+    if (pT < pFreezeVal || state.freezeScore > (predFreezeTriggerPct ?: 50)) { freezeStat = "RISK"; freezeCol = "#ff9800" }
+    if (pT < 32 || state.freezeScore > 75) { freezeStat = "FREEZE"; freezeCol = "#d32f2f" }
+    if (state.testPredFreeze) { freezeStat = "PRE-ALERT"; freezeCol = "#ff9800" }
 
-    state.forecast = [
-        storm: [status: stormStat, color: stormCol],
-        flood: [status: floodStat, color: floodCol],
-        frost: [status: frostStat, color: frostCol],
-        predT: pT, predH: pH.toInteger(), predD: pD, predG: pG, predW: pW, predR: pR
-    ]
+    state.forecast = [storm: [status: stormStat, color: stormCol], flood: [status: floodStat, color: floodCol], freeze: [status: freezeStat, color: freezeCol], predT: pT, predH: pH.toInteger(), predD: pD, predG: pG, predW: pW, predR: pR]
 }
 
 def buildTacticalReport() {
     def lines = []
-    def t = state.lastT ?: 70;
-    def g = state.lastG ?: 0; def w = state.lastWind ?: 0
-    def r = state.lastR ?: 0;
-    def l = state.lastLit ?: 0; def lDist = state.lastLDist ?: 999
-    def fT_Thresh = (frostTempThreshold ?: 37).toDouble()
+    def t = state.lastT ?: 70; def g = state.lastG ?: 0; def w = state.lastWind ?: 0
+    def r = state.lastR ?: 0; def l = state.lastLit ?: 0; def lDist = state.lastLDist ?: 999
+    def fT_Thresh = (freezeTempThreshold ?: 37).toDouble()
     
     if (settings.masterEnable == false && !state.testMode) {
-        state.narrative = "🔴 SYSTEM DISABLED. LOGIC HALTED.";
-        return
+        state.narrative = "🔴 SYSTEM DISABLED. LOGIC HALTED."; return
     }
-    if (state.testMode) {
-        lines.add("<span style='color:purple'>⚠️ SIMULATION/TEST OVERRIDE ACTIVE.</span>")
-    }
+    if (state.testMode) { lines.add("<span style='color:purple'>⚠️ SIMULATION/TEST OVERRIDE ACTIVE.</span>") }
 
-    if (t <= 30.0 || state.testFrost) lines.add("<span style='color:#b71c1c'><b>❄️ HARD FREEZE:</b> Critical thermal failure (<30°F). Pipe burst risk imminent.</span>")
-    else if (t <= fT_Thresh) lines.add("<span style='color:blue'><b>❄️ FREEZE WARNING:</b> Surface temps below threshold. Protect vegetation.</span>")
-    else if ((state.wetBulb ?: 99) <= 34.0) lines.add("<span style='color:blue'><b>💧 WET BULB RISK:</b> Evaporative cooling at ${state.wetBulb}°F. Frost likely on wet surfaces.</span>")
-    else if (state.frostScore >= (frostTriggerPct ?: 60)) 
- 
- 
-    lines.add("<b>❄️ COLD FRONT:</b> Approaching freeze threshold. Monitor heating.")
+    if (t <= 30.0 || state.testFreeze) lines.add("<span style='color:#b71c1c'><b>❄️ HARD FREEZE:</b> Critical thermal failure (<30°F). Pipe burst risk imminent.</span>")
+    else if (t <= fT_Thresh) lines.add("<span style='color:blue'><b>❄️ FREEZE WARNING:</b> Surface temps below threshold. Protect pipes.</span>")
+    else if ((state.wetBulb ?: 99) <= 34.0) lines.add("<span style='color:blue'><b>💧 WET BULB RISK:</b> Evaporative cooling at ${state.wetBulb}°F. Flash freeze likely.</span>")
+    else if (state.freezeScore >= (freezeTriggerPct ?: 60)) lines.add("<b>❄️ COLD FRONT:</b> Approaching freeze threshold. Monitor heating.")
     else lines.add("<b>🌡️ THERMAL:</b> ${t}°F (Stable).")
   
     if (state.currentScore >= (stormTriggerPct ?: 60) || state.testStorm) {
@@ -1422,16 +1285,13 @@ def buildTacticalReport() {
     
     if (state.floodScore >= (floodTriggerPct ?: 70) || state.testFlood) {
         lines.add("<span style='color:#0d47a1'><b>🌊 FLOOD RISK CRITICAL:</b> Soil saturation ${state.drainageLvl}%. Runoff velocity high.</span>")
-    } else if (r > 0) {
-         lines.add("<b>🌧️ RAIN:</b> Active precip (${r} in/hr). Drainage stable.")
-    }
+    } else if (r > 0) { lines.add("<b>🌧️ RAIN:</b> Active precip (${r} in/hr). Drainage stable.") }
 
     def trends = []
     if ((state.tRate ?: 0) < -1.5) trends.add("Rapid Temp Drop")
     if ((state.gRate ?: 0) > 5.0) trends.add("Gusts Surging")
     if ((state.wRate ?: 0) > 3.0) trends.add("Winds Building")
     if ((!state.lightningStale || state.stormOverrideActive) && l > 0 && lDist > 20) trends.add("Distant Thunder")
-    
     
     if (trends.size() > 0) lines.add("<b>📈 TRENDS:</b> " + trends.join(", ") + ".")
     else lines.add("Conditions stable.")
@@ -1442,88 +1302,88 @@ def buildTacticalReport() {
 // 8. BUTTON HANDLER & HELPERS
 // =================================================================================================
 
-def sendNotification(msg) {
-    if (notifDevice) {
-        log.info "Notification Sent: ${msg}"
-        notifDevice.deviceNotification(msg)
+def sendSmartNotification(msg, type) {
+    if (!notifDevice) return
+    if ((state.globalMuteExpires ?: 0) > now()) { log.info "Notification suppressed by Global Mute."; return }
+    
+    if ((type != "CRITICAL" || silenceCritical) && (sleepModeSwitch || sleepModeModes || (sleepModeTimeStart && sleepModeTimeEnd))) {
+        def isQuiet = false
+        if (sleepModeSwitch && sleepModeSwitch.currentSwitch == "on") isQuiet = true
+        if (location.mode in sleepModeModes) isQuiet = true
+        if (sleepModeTimeStart && sleepModeTimeEnd) {
+            def nowT = new Date()
+            def startT = timeToday(sleepModeTimeStart)
+            def endT = timeToday(sleepModeTimeEnd)
+            if (timeOfDayIsBetween(startT, endT, nowT, location.timeZone)) isQuiet = true
+        }
+        if (isQuiet) { log.info "Notification suppressed by Quiet Time/Sleep Mode."; return }
     }
+    def prefix = appLabelPrefix ?: "[TWL]"
+    def finalMsg = "${prefix} ${msg}"
+    log.info "Notification Sent: ${finalMsg}"
+    notifDevice.deviceNotification(finalMsg)
 }
 
 def appButtonHandler(btn) { 
-    if (btn == "completeSetupBtn") { state.setupComplete = true;
-    initialize(); pollWeatherStation() }
-  
+    if (btn == "completeSetupBtn") { state.setupComplete = true; initialize(); pollWeatherStation() }
+    else if (btn == "muteAllBtn") {
+        if ((state.globalMuteExpires ?: 0) > now()) { state.globalMuteExpires = 0 } else { state.globalMuteExpires = now() + (24 * 60 * 60 * 1000) }
+        pollWeatherStation()
+    }
+    else if (btn == "testStormNotif") { sendSmartNotification("TEST: 🚨 STORM ALARM ACTIVE", "CRITICAL") }
+    else if (btn == "testFloodNotif") { sendSmartNotification("TEST: 🌊 FLOOD ALARM ACTIVE", "CRITICAL") }
+    else if (btn == "testFreezeNotif") { sendSmartNotification("TEST: ❄️ FREEZE ALARM ACTIVE", "CRITICAL") }
+    else if (btn == "testPredStormNotif") { sendSmartNotification("TEST: 🔮 PRE-STORM WATCH ACTIVE", "WARNING") }
+    else if (btn == "testPredFloodNotif") { sendSmartNotification("TEST: 🔮 PRE-FLOOD WATCH ACTIVE", "WARNING") }
+    else if (btn == "testPredFreezeNotif") { sendSmartNotification("TEST: 🔮 PRE-FREEZE WATCH ACTIVE", "WARNING") }
+    else if (btn == "testClearBtn") { sendSmartNotification("✅ TEST: All Clear: Conditions have stabilized.", "INFO") }
+
     else if (btn == "testStormBtn") { 
-        state.testMode = true;
-        state.simulateScan = false; state.testStorm = true;
-        state.testFlood = false; state.testFrost = false; state.testPredStorm = false; state.testPredFlood = false;
-        state.testPredFrost = false;
-        sendNotification("🧪 TEST INITIATED: Storm Alarm Simulation. Watch for activation...")
+        state.testMode = true; state.simulateScan = false; state.testStorm = true;
+        state.testFlood = false; state.testFreeze = false; state.testPredStorm = false; state.testPredFlood = false; state.testPredFreeze = false;
+        sendSmartNotification("🧪 TEST INITIATED: Storm Alarm Simulation. Watch for activation...", "INFO")
         pollWeatherStation() 
     }
     else if (btn == "testFloodBtn") { 
-        state.testMode = true;
-        state.simulateScan = false; state.testStorm = false;
-        state.testFlood = true; state.testFrost = false; 
-        state.testPredStorm = false; state.testPredFlood = false;
-        state.testPredFrost = false;
-        sendNotification("🧪 TEST INITIATED: Flood Alarm Simulation. Watch for activation...")
+        state.testMode = true; state.simulateScan = false; state.testStorm = false;
+        state.testFlood = true; state.testFreeze = false; state.testPredStorm = false; state.testPredFlood = false; state.testPredFreeze = false;
+        sendSmartNotification("🧪 TEST INITIATED: Flood Alarm Simulation. Watch for activation...", "INFO")
         pollWeatherStation() 
     }
-    else if (btn == "testFrostBtn") { 
-        state.testMode = true;
-        state.simulateScan = false; state.testStorm = false;
-        state.testFlood = false; state.testFrost = true; 
-        state.testPredStorm = false; state.testPredFlood = false;
-        state.testPredFrost = false;
-        sendNotification("🧪 TEST INITIATED: Frost Alarm Simulation. Watch for activation...")
+    else if (btn == "testFreezeBtn") { 
+        state.testMode = true; state.simulateScan = false; state.testStorm = false;
+        state.testFlood = false; state.testFreeze = true; state.testPredStorm = false; state.testPredFlood = false; state.testPredFreeze = false;
+        sendSmartNotification("🧪 TEST INITIATED: Freeze Alarm Simulation. Watch for activation...", "INFO")
         pollWeatherStation() 
     }
     else if (btn == "testPredStormBtn") { 
-        state.testMode = true;
-        state.simulateScan = false;
-        state.testStorm = false; state.testFlood = false; state.testFrost = false;
-        state.testPredStorm = true; state.testPredFlood = false;
-        state.testPredFrost = false;
-        sendNotification("🧪 TEST INITIATED: Predictive Storm Watch Simulation...")
+        state.testMode = true; state.simulateScan = false; state.testStorm = false; state.testFlood = false; state.testFreeze = false;
+        state.testPredStorm = true; state.testPredFlood = false; state.testPredFreeze = false;
+        sendSmartNotification("🧪 TEST INITIATED: Predictive Storm Watch Simulation...", "INFO")
         pollWeatherStation() 
     }
     else if (btn == "testPredFloodBtn") { 
-        state.testMode = true;
-        state.simulateScan = false;
-        state.testStorm = false; state.testFlood = false; state.testFrost = false;
-        state.testPredStorm = false; state.testPredFlood = true;
-        state.testPredFrost = false;
-        sendNotification("🧪 TEST INITIATED: Predictive Flood Watch Simulation...")
+        state.testMode = true; state.simulateScan = false; state.testStorm = false; state.testFlood = false; state.testFreeze = false;
+        state.testPredStorm = false; state.testPredFlood = true; state.testPredFreeze = false;
+        sendSmartNotification("🧪 TEST INITIATED: Predictive Flood Watch Simulation...", "INFO")
         pollWeatherStation() 
     }
-    else if (btn == "testPredFrostBtn") { 
-        state.testMode = true;
-        state.simulateScan = false;
-        state.testStorm = false; state.testFlood = false; state.testFrost = false;
-        state.testPredStorm = false; state.testPredFlood = false;
-        state.testPredFrost = true;
-        sendNotification("🧪 TEST INITIATED: Predictive Frost Watch Simulation...")
+    else if (btn == "testPredFreezeBtn") { 
+        state.testMode = true; state.simulateScan = false; state.testStorm = false; state.testFlood = false; state.testFreeze = false;
+        state.testPredStorm = false; state.testPredFlood = false; state.testPredFreeze = true;
+        sendSmartNotification("🧪 TEST INITIATED: Predictive Freeze Watch Simulation...", "INFO")
         pollWeatherStation() 
     }
-    
     else if (btn == "clearBtn") { resetSystem() }
     else if (btn == "hardResetBtn") { hardWipe() }
-    else if (btn == "refreshBtn") { state.testMode = false;
-    state.simulateScan = false; initialize(); if (weatherDevice.hasCommand("refresh")) { log.info "Refreshing..."; weatherDevice.refresh() };
-    pollWeatherStation() 
-    }
-    else if (btn == "refreshLogs") { 
-        log.info "Refreshing Data Logs..."
-        pollWeatherStation() 
-    }
+    else if (btn == "refreshBtn") { state.testMode = false; state.simulateScan = false; initialize(); if (weatherDevice.hasCommand("refresh")) { log.info "Refreshing..."; weatherDevice.refresh() }; pollWeatherStation() }
+    else if (btn == "refreshLogs") { log.info "Refreshing Data Logs..."; pollWeatherStation() }
     else if (btn == "forceSimBtn") { runSimulatedScan() }
     else if (btn == "reloadPageBtn") { log.info "Page Reload" }
 }
 
 def runSimulatedScan() {
-    state.testMode = false;
-    state.simulateScan = true
+    state.testMode = false; state.simulateScan = true
     state.narrative = "🧪 SIMULATION ACTIVE: Injecting Synthetic Weather Data (Cycle starting)..."
     generateRandomSimData()
     schedule("0 */5 * * * ?", generateRandomSimData)
@@ -1531,73 +1391,53 @@ def runSimulatedScan() {
 
 def generateRandomSimData() {
     def rnd = new Random()
-    state.simTemp = rnd.nextInt(70) + 15;
-    state.simWind = rnd.nextInt(60); state.simRain = rnd.nextInt(50) / 10.0
-    state.simHum = rnd.nextInt(50) + 50;
-    state.simGust = state.simWind + 10; state.simLit = rnd.nextInt(20); state.simLux = rnd.nextInt(5000)
+    state.simTemp = rnd.nextInt(70) + 15; state.simWind = rnd.nextInt(60); state.simRain = rnd.nextInt(50) / 10.0
+    state.simHum = rnd.nextInt(50) + 50; state.simGust = state.simWind + 10; state.simLit = rnd.nextInt(20); state.simLux = rnd.nextInt(5000)
     state.narrative = "🎲 SIMULATION CYCLE: Temp ${state.simTemp}°F | Wind ${state.simWind}mph | Rain ${state.simRain}in"
     pollWeatherStation() 
 }
 
 def resetSystem() { 
     unschedule("generateRandomSimData")
-    state.testMode = false;
-    state.simulateScan = false
-    state.testStorm = false; state.testFlood = false; state.testFrost = false;
-    state.testPredStorm = false;
-    state.testPredFlood = false; state.testPredFrost = false;
+    state.testMode = false; state.simulateScan = false;
+    state.testStorm = false; state.testFlood = false; state.testFreeze = false;
+    state.testPredStorm = false; state.testPredFlood = false; state.testPredFreeze = false;
     state.simTemp = null
-    state.currentScore = 0;
-    state.floodScore = 0;
-    state.frostScore = 0
-    state.rawStormScore = 0; state.rawFloodScore = 0;
-    state.rawFrostScore = 0
-    state.wGustWeight = 0; state.wSpeedWeight = 0; state.sRainWeight = 0; 
-    state.lWeight = 0;
+    state.currentScore = 0; state.floodScore = 0; state.freezeScore = 0
+    state.rawStormScore = 0; state.rawFloodScore = 0; state.rawFreezeScore = 0
+    state.wGustWeight = 0; state.wSpeedWeight = 0; state.sRainWeight = 0; state.lWeight = 0;
     state.dWeight = 0; state.luxWeight = 0; state.wDirWeight = 0; state.proxWeight = 0
-    state.frrWeight = 0;
-    state.fsWeight = 0; state.fTempWeight = 0;
-    state.fHumWeight = 0; state.tWeightDrop = 0;
-    state.fDirWeight = 0
-    state.forecast = [storm:[status:"STABLE", color:"#43a047"], flood:[status:"STABLE", color:"#43a047"], frost:[status:"STABLE", color:"#43a047"], predT:0, predH:0, predD:0, predW:0, predG:0, predR:0]
+    state.frrWeight = 0; state.fsWeight = 0; state.fTempWeight = 0;
+    state.fHumWeight = 0; state.tWeightDrop = 0; state.fDirWeight = 0
+    state.forecast = [storm:[status:"STABLE", color:"#43a047"], flood:[status:"STABLE", color:"#43a047"], freeze:[status:"STABLE", color:"#43a047"], predT:0, predH:0, predD:0, predW:0, predG:0, predR:0]
     state.alertHistory = []
-    state.lastTriggerTime = [storm:0, flood:0, frost:0, pStorm:0, pFlood:0, pFrost:0]
-    state.activeEventStart = [storm:0, flood:0, frost:0, pStorm:0, pFlood:0, pFrost:0]
+    state.lastTriggerTime = [storm:0, flood:0, freeze:0, pStorm:0, pFlood:0, pFreeze:0]
+    state.activeEventStart = [storm:0, flood:0, freeze:0, pStorm:0, pFlood:0, pFreeze:0]
+    state.triggerStats = [storm:0, flood:0, freeze:0, pStorm:0, pFlood:0, pFreeze:0]
     state.narrative = "✅ ALERTS CLEARED & TIMERS RESET. RESUMING LIVE DATA STREAM..."
-    state.stormOverrideActive = false
-    state.lightningStale = false
-    controlSwitch?.off();
-    floodSwitch?.off(); frostSwitch?.off()
-    predStormSwitch?.off(); predFloodSwitch?.off(); predFrostSwitch?.off();
-    
-    // [NEW] Clear Timers
-    state.timeToStorm = -1;
-    state.timeToFlood = -1; state.timeToFrost = -1
-    
+    state.stormOverrideActive = false; state.lightningStale = false
+    state.globalMuteExpires = 0
+    controlSwitch?.off(); floodSwitch?.off(); freezeSwitch?.off()
+    predStormSwitch?.off(); predFloodSwitch?.off(); predFreezeSwitch?.off();
+    state.timeToStorm = -1; state.timeToFlood = -1; state.timeToFreeze = -1
     runIn(1, "pollWeatherStation") 
 }
 
 def hardWipe() {
-    state.histTemp=[];
-    state.histHum=[]; state.histGust=[]; state.histWind=[];
-    state.histRain=[];
+    state.histTemp=[]; state.histHum=[]; state.histGust=[]; state.histWind=[]; state.histRain=[];
     state.histDew=[]; state.histChill=[]; state.histLight=[]; state.histSat=[]; state.histBat=[]; state.histLux=[];
-    state.histStormScore=[]; state.histFloodScore=[]; state.histFrostScore=[];
-    state.anomalies=[]
+    state.histStormScore=[]; state.histFloodScore=[]; state.histFreezeScore=[]; state.anomalies=[]
     resetSystem()
 }
-
-// =================================================================================================
-// 9. SUB-PAGES & PLACEHOLDERS
-// =================================================================================================
 
 def updateHistory(key, val) {
     if (state[key] == null) state[key] = []
     def lastEntry = state[key].size() > 0 ? state[key][0] : null
-    def lastVal = lastEntry instanceof Map ? lastEntry.value : null
-    def lastTime = lastEntry instanceof Map ? lastEntry.time : 0
+    def lastVal = lastEntry instanceof Map ? lastEntry.value : lastEntry
+    def lastTime = 0
+    if (lastEntry instanceof Map && lastEntry.time != null) { lastTime = lastEntry.time }
     if (lastVal == val && (now() - lastTime) < 1800000) { 
-        if (state[key].size() > 0) state[key][0].time = now()
+        if (state[key].size() > 0 && state[key][0] instanceof Map) { state[key][0].time = now() }
     } else {
         def entry = [value: val, time: now()]
         state[key].add(0, entry)
@@ -1607,9 +1447,7 @@ def updateHistory(key, val) {
 
 def checkAnomalies(t, g, r) { 
     def issues = []
-    if (state.histTemp && state.histTemp.size() > 0) 
- 
-    {
+    if (state.histTemp && state.histTemp.size() > 0) {
         def lastT = state.histTemp[0] instanceof Map ? state.histTemp[0].value : state.histTemp[0]
         if (Math.abs(t - lastT) > 15.0) issues.add("Thermal Shock")
     }
@@ -1624,210 +1462,231 @@ def checkAnomalies(t, g, r) {
 }
 
 def calculatePai() {
-    state.paiStorm = 100;
-    state.paiFlood = 100; state.paiFrost = 100
+    state.paiStorm = 100; state.paiFlood = 100; state.paiFreeze = 100
 }
 
 def logTrigger(type, isOn) {
-    if (!state.activeEventStart) state.activeEventStart = [storm:0, flood:0, frost:0, pStorm:0, pFlood:0, pFrost:0]
+    if (!state.activeEventStart) state.activeEventStart = [storm:0, flood:0, freeze:0, pStorm:0, pFlood:0, pFreeze:0]
     if (!state.alertHistory) state.alertHistory = []
+    if (!state.triggerStats) state.triggerStats = [storm:0, flood:0, freeze:0, pStorm:0, pFlood:0, pFreeze:0]
+
     def key = ""
-    if (type == "STORM") key = "storm"
-    else if (type == "FLOOD") key = "flood"
-    else if (type == "FROST") key = "frost"
-    else if (type == "PRE-STORM") key = "pStorm"
-    else if (type == "PRE-FLOOD") key = "pFlood"
-    else if (type == "PRE-FROST") key = "pFrost"
+    if (type == "STORM") key = "storm"; else if (type == "FLOOD") key = "flood"; else if (type == "FREEZE") key = "freeze"
+    else if (type == "PRE-STORM") key = "pStorm"; else if (type == "PRE-FLOOD") key = "pFlood"; else if (type == "PRE-FREEZE") key = "pFreeze"
     
     if (isOn) {
         state.activeEventStart[key] = now()
+        if (state.triggerStats[key] == null) state.triggerStats[key] = 0
+        state.triggerStats[key] = state.triggerStats[key] + 1
     } else {
         def start = state.activeEventStart[key]
         if (start > 0) {
             def diff = now() - start
-            def dur = ""
-            if (diff < 60000) dur = 
-            "${(diff/1000).toInteger()}s"
-            else dur = "${(diff/60000).toInteger()}m"
+            def dur = diff < 60000 ? "${(diff/1000).toInteger()}s" : "${(diff/60000).toInteger()}m"
             def entry = [type: type, time: new Date(start).format("MM-dd HH:mm", location.timeZone), duration: dur]
             state.alertHistory.add(0, entry)
-            if (state.alertHistory.size() > 20) 
-                state.alertHistory = state.alertHistory.take(20)
-   
-            state.activeEventStart[key] = 0 
-            // Reset
+            if (state.alertHistory.size() > 20) state.alertHistory = state.alertHistory.take(20)
+            state.activeEventStart[key] = 0 // Critical: Resets the dashboard timer
         }
     }
 }
 
 def checkTriggers() {
     if (settings.masterEnable == false && !state.testMode) {
-        controlSwitch?.off();
-        floodSwitch?.off(); frostSwitch?.off()
-        predStormSwitch?.off(); predFloodSwitch?.off();
-        predFrostSwitch?.off()
+        controlSwitch?.off(); floodSwitch?.off(); freezeSwitch?.off()
+        predStormSwitch?.off(); predFloodSwitch?.off(); predFreezeSwitch?.off()
         return
     }
-    
-    // [NEW] Check External Pause Switch
-    if (settings.pauseSwitch && settings.pauseSwitch.currentSwitch == "on" && !state.testMode) {
-        return
-    }
+    if (settings.pauseSwitch && settings.pauseSwitch.currentSwitch == "on" && !state.testMode) { return }
+    if ((state.globalMuteExpires ?: 0) > now()) return
 
     def sLim = stormTriggerPct ?: 60
     def fLim = floodTriggerPct ?: 70
-    def frLim = frostTriggerPct ?: 60
+    def frLim = freezeTriggerPct ?: 60
     def hyst = hysteresisVal ?: 5
     def psLim = predStormTriggerPct ?: 50
     def pfLim = predFloodTriggerPct ?: 50
-    def pfrLim = predFrostTriggerPct ?: 50
-    def minRunTime = 300000 // 5 Minutes in ms
+    def pfrLim = predFreezeTriggerPct ?: 50
+    def minRunTime = 300000 // 5 Minutes
+    
+    // Clear Message Helper
+    def sendClear = { typeName ->
+        if (notifyClearEnabled) {
+            def txt = clearMsg ?: "All Clear: Conditions have stabilized."
+            sendSmartNotification("✅ ${typeName} ${txt}", "INFO")
+        }
+    }
 
     def canTrigger = { key ->
-    
- 
-        if (state.testMode || state.testPredStorm || state.testPredFlood || state.testPredFrost) return true 
+        if (state.testMode || state.testPredStorm || state.testPredFlood || state.testPredFreeze) return true 
         def lastT = state.lastTriggerTime ? state.lastTriggerTime[key] : 0
         def delayMs = (triggerDelay ?: 0) * 60000
         return (now() - lastT) > delayMs
     }
 
     def markTrigger = { key ->
-        if (!state.lastTriggerTime) state.lastTriggerTime = [storm:0, flood:0, frost:0, pStorm:0, pFlood:0, pFrost:0]
+        if (!state.lastTriggerTime) state.lastTriggerTime = [storm:0, flood:0, freeze:0, pStorm:0, pFlood:0, pFreeze:0]
         state.lastTriggerTime[key] = now()
     }
+    
+    def isRunning = { k -> return (state.activeEventStart && state.activeEventStart[k] > 0) }
 
+    // -------------------------------------------------------------------------
     // STORM LOGIC
-    boolean activeStorm = (state.testStorm || (!state.testPredStorm && state.currentScore >= sLim))
-    boolean stormOffCondition = !state.testStorm && state.currentScore < (sLim - hyst)
-    if (activeStorm) {
-        if (canTrigger("storm") || (controlSwitch && controlSwitch.currentSwitch == "on")) { 
-            if (controlSwitch && controlSwitch.currentSwitch != "on") { 
-                controlSwitch?.on();
-                logTrigger("STORM", true); markTrigger("storm") 
-                def reason = state.testStorm ? "Manual Test" : "Score ${state.currentScore}% > ${sLim}%"
-                if ((settings.notifyStorm ?: "Active Only") != "Disabled") sendNotification("🚨 STORM ALARM ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('storm')}\nTime: ${new Date().format('h:mm a')}")
-            }
+    // -------------------------------------------------------------------------
+    boolean sensorStormActive = (state.testStorm || (!state.testPredStorm && state.currentScore >= sLim))
+    boolean manualStormActive = (controlSwitch && controlSwitch.currentSwitch == "on")
+    boolean stormClearCondition = !state.testStorm && state.currentScore < (sLim - hyst)
+    
+    // Trigger ON
+    if ((sensorStormActive || manualStormActive) && !isRunning("storm")) {
+         if (canTrigger("storm") || manualStormActive) { 
+             controlSwitch?.on() 
+             if (predStormSwitch && predStormSwitch.currentSwitch == "on") {
+                 predStormSwitch.off()
+                 logTrigger("PRE-STORM", false) 
+             }
+             logTrigger("STORM", true);
+             // markTrigger("storm") removed from here (Fix 3: End-to-Start Delay)
+             
+             def reason = state.testStorm ? "Manual Test" : "Score ${state.currentScore}% >= ${sLim}%"
+             if (notifyStormEnabled && !manualStormActive) sendSmartNotification("🚨 STORM ALARM ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('storm')}\nTime: ${new Date().format('h:mm a')}", "CRITICAL")
         }
-    } else if (stormOffCondition) { 
-        def timeActive = now() - (state.activeEventStart['storm'] ?: 0)
-        if (controlSwitch && controlSwitch.currentSwitch == "on" && timeActive > minRunTime) { 
- 
-       
-            controlSwitch?.off();
-            logTrigger("STORM", false) 
-            if ((settings.notifyStorm ?: "Active Only") == "Active & All Clear") sendNotification("✅ STORM ALL CLEAR: Conditions stabilized below threshold.")
+    } 
+    // Trigger OFF
+    else if (stormClearCondition && isRunning("storm")) { 
+        if (!manualStormActive) {
+            def timeActive = now() - (state.activeEventStart['storm'] ?: 0)
+            if (timeActive > minRunTime) { 
+                controlSwitch?.off();
+                logTrigger("STORM", false)
+                markTrigger("storm") // Added here (Fix 3: Start cooldown on clear)
+                sendClear("STORM")
+            }
         }
     }
 
-    // PREDICTIVE STORM LOGIC (FIXED NULL SAFETY)
+    // PRED-STORM (Only if main storm is OFF)
     def stormRisk = (state.forecast?.storm?.status == "RISING") || (state.forecast?.storm?.status == "HIGH") || (state.forecast?.storm?.status == "PRE-ALERT")
-    boolean triggerPredStorm = state.testPredStorm || (stormRisk && !state.testStorm && state.currentScore >= psLim)
-    if (triggerPredStorm) {
-        log.debug "Pred Storm Trigger Active. Checking Switch..."
-        if (canTrigger("pStorm") || (predStormSwitch && predStormSwitch.currentSwitch == "on")) {
-            if (predStormSwitch && predStormSwitch.currentSwitch != "on") { 
-                predStormSwitch?.on();
-                logTrigger("PRE-STORM", true); markTrigger("pStorm") 
-                def reason = state.testPredStorm ? "Manual Test" : "Score ${state.currentScore}% > ${psLim}% (Trend Rising)"
-                if ((settings.notifyPredStorm ?: "Active Only") != "Disabled") sendNotification("🔮 PRE-STORM WATCH ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('storm')}\nTime: ${new Date().format('h:mm a')}")
-            }
+    boolean sensorPredStormActive = state.testPredStorm || (stormRisk && !sensorStormActive && !state.testStorm && state.currentScore >= psLim)
+    boolean manualPredStormActive = (predStormSwitch && predStormSwitch.currentSwitch == "on")
+    
+    if ((sensorPredStormActive || manualPredStormActive) && !isRunning("pStorm") && !isRunning("storm")) {
+        if (canTrigger("pStorm") || manualPredStormActive) {
+            predStormSwitch?.on();
+            logTrigger("PRE-STORM", true); markTrigger("pStorm") 
+            def reason = state.testPredStorm ? "Manual Test" : "Score ${state.currentScore}% >= ${psLim}% (Trend Rising)"
+            if (notifyPredStormEnabled && !manualPredStormActive) sendSmartNotification("🔮 PRE-STORM WATCH ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('storm')}\nTime: ${new Date().format('h:mm a')}", "WARNING")
         }
-    } else { 
-        if (predStormSwitch && predStormSwitch.currentSwitch == "on") { 
+    } else if (!sensorPredStormActive && isRunning("pStorm")) { 
+        if (!manualPredStormActive) {
             predStormSwitch?.off();
             logTrigger("PRE-STORM", false)
-            if ((settings.notifyPredStorm ?: "Active Only") == "Active & All Clear") sendNotification("✅ PRE-STORM WATCH ENDED.")
+            if (notifyPredStormEnabled) sendSmartNotification("✅ PRE-STORM WATCH ENDED.", "INFO")
         }
     }
 
+    // -------------------------------------------------------------------------
     // FLOOD LOGIC
-    boolean activeFlood = (state.testFlood || (!state.testPredFlood && state.floodScore >= fLim))
-    boolean floodOffCondition = !state.testFlood && state.floodScore < (fLim - hyst)
-    if (activeFlood) {
-        if (canTrigger("flood") || (floodSwitch && floodSwitch.currentSwitch == "on")) {
-        
-            if (floodSwitch && floodSwitch.currentSwitch != "on") { 
-                floodSwitch?.on();
-                logTrigger("FLOOD", true); markTrigger("flood")
-                def reason = state.testFlood ? "Manual Test" : "Score ${state.floodScore}% > ${fLim}%"
-                if ((settings.notifyFlood ?: "Active Only") != "Disabled") sendNotification("🌊 FLOOD ALARM ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('flood')}\nTime: ${new Date().format('h:mm a')}")
+    // -------------------------------------------------------------------------
+    boolean sensorFloodActive = (state.testFlood || (!state.testPredFlood && state.floodScore >= fLim))
+    boolean manualFloodActive = (floodSwitch && floodSwitch.currentSwitch == "on")
+    boolean floodClearCondition = !state.testFlood && state.floodScore < (fLim - hyst)
+    
+    if ((sensorFloodActive || manualFloodActive) && !isRunning("flood")) {
+         if (canTrigger("flood") || manualFloodActive) {
+            floodSwitch?.on();
+            if (predFloodSwitch && predFloodSwitch.currentSwitch == "on") {
+                predFloodSwitch.off();
+                logTrigger("PRE-FLOOD", false)
+            }
+            logTrigger("FLOOD", true);
+            // markTrigger("flood") removed (Fix 3)
+            def reason = state.testFlood ? "Manual Test" : "Score ${state.floodScore}% >= ${fLim}%"
+            if (notifyFloodEnabled && !manualFloodActive) sendSmartNotification("🌊 FLOOD ALARM ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('flood')}\nTime: ${new Date().format('h:mm a')}", "CRITICAL")
+        }
+    } else if (floodClearCondition && isRunning("flood")) { 
+        if (!manualFloodActive) {
+            def timeActive = now() - (state.activeEventStart['flood'] ?: 0)
+            if (timeActive > minRunTime) { 
+                floodSwitch?.off();
+                logTrigger("FLOOD", false) 
+                markTrigger("flood") // Added (Fix 3)
+                sendClear("FLOOD")
             }
         }
-    } else if (floodOffCondition) { 
-        def timeActive = now() - (state.activeEventStart['flood'] ?: 0)
-        if (floodSwitch && floodSwitch.currentSwitch == "on" && timeActive > minRunTime) { 
- 
-       
-             floodSwitch?.off();
-             logTrigger("FLOOD", false) 
-             if ((settings.notifyFlood ?: "Active Only") == "Active & All Clear") sendNotification("✅ FLOOD ALL CLEAR: Conditions stabilized below threshold.")
-        }
     }
 
-    // PREDICTIVE FLOOD LOGIC (FIXED NULL SAFETY)
+    // PRED-FLOOD
     def floodRisk = (state.forecast?.flood?.status == "RISING") || (state.forecast?.flood?.status == "HIGH") || (state.forecast?.flood?.status == "PRE-ALERT")
-    boolean triggerPredFlood = state.testPredFlood || (floodRisk && !state.testFlood && state.floodScore >= pfLim)
-    if (triggerPredFlood) {
-        if (canTrigger("pFlood") || (predFloodSwitch && predFloodSwitch.currentSwitch == "on")) {
-             if (predFloodSwitch && predFloodSwitch.currentSwitch != "on") { 
-                 predFloodSwitch?.on();
-                 logTrigger("PRE-FLOOD", true); markTrigger("pFlood") 
-                 def reason = state.testPredFlood ? "Manual Test" : "Score ${state.floodScore}% > ${pfLim}% (Trend Rising)"
-                 if ((settings.notifyPredFlood ?: "Active Only") != "Disabled") sendNotification("🔮 PRE-FLOOD WATCH ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('flood')}\nTime: ${new Date().format('h:mm a')}")
-             }
+    boolean sensorPredFloodActive = state.testPredFlood || (floodRisk && !sensorFloodActive && !state.testFlood && state.floodScore >= pfLim)
+    boolean manualPredFloodActive = (predFloodSwitch && predFloodSwitch.currentSwitch == "on")
+
+    if ((sensorPredFloodActive || manualPredFloodActive) && !isRunning("pFlood") && !isRunning("flood")) {
+        if (canTrigger("pFlood") || manualPredFloodActive) {
+             predFloodSwitch?.on();
+             logTrigger("PRE-FLOOD", true); markTrigger("pFlood") 
+             def reason = state.testPredFlood ? "Manual Test" : "Score ${state.floodScore}% >= ${pfLim}% (Trend Rising)"
+             if (notifyPredFloodEnabled && !manualPredFloodActive) sendSmartNotification("🔮 PRE-FLOOD WATCH ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('flood')}\nTime: ${new Date().format('h:mm a')}", "WARNING")
         }
-    } else { 
-        if (predFloodSwitch && predFloodSwitch.currentSwitch == "on") { 
+    } else if (!sensorPredFloodActive && isRunning("pFlood")) { 
+        if (!manualPredFloodActive) {
             predFloodSwitch?.off();
             logTrigger("PRE-FLOOD", false) 
-            if ((settings.notifyPredFlood ?: "Active Only") == "Active & All Clear") sendNotification("✅ PRE-FLOOD WATCH ENDED.")
+            if (notifyPredFloodEnabled) sendSmartNotification("✅ PRE-FLOOD WATCH ENDED.", "INFO")
         }
     }
 
-    // FROST LOGIC
-    def hardFreeze = (state.lastT ?: 99) <= (frostTempThreshold ?: 37)
+    // -------------------------------------------------------------------------
+    // FREEZE LOGIC
+    // -------------------------------------------------------------------------
+    def hardFreeze = (state.lastT ?: 99) <= (freezeTempThreshold ?: 37)
     def wetBulbFreeze = (state.wetBulb ?: 99) <= 32.0
-    boolean activeFrost = (state.testFrost || (!state.testPredFrost && (state.frostScore >= frLim) || hardFreeze || wetBulbFreeze))
-    boolean frostOffCondition = !state.testFrost && (state.frostScore < (frLim - hyst)) && !hardFreeze && !wetBulbFreeze
-    if (activeFrost) {
-        if (canTrigger("frost") || (frostSwitch && frostSwitch.currentSwitch == "on")) {
-        
-            if (frostSwitch && frostSwitch.currentSwitch != "on") { 
-                frostSwitch?.on();
-                logTrigger("FROST", true);
-                markTrigger("frost") 
-                def reason = state.testFrost ? "Manual Test" : (wetBulbFreeze ? "Wet Bulb ${state.wetBulb}°F <= 32°F" : "Score ${state.frostScore}% > ${frLim}%")
-                if ((settings.notifyFrost ?: "Active Only") != "Disabled") sendNotification("❄️ FROST ALARM ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('frost')}\nTime: ${new Date().format('h:mm a')}")
+    boolean sensorFreezeActive = (state.testFreeze || (!state.testPredFreeze && (state.freezeScore >= frLim) || hardFreeze || wetBulbFreeze))
+    boolean manualFreezeActive = (freezeSwitch && freezeSwitch.currentSwitch == "on")
+    boolean freezeClearCondition = !state.testFreeze && (state.freezeScore < (frLim - hyst)) && !hardFreeze && !wetBulbFreeze
+    
+    if ((sensorFreezeActive || manualFreezeActive) && !isRunning("freeze")) {
+        if (canTrigger("freeze") || manualFreezeActive) {
+            freezeSwitch?.on();
+            if (predFreezeSwitch && predFreezeSwitch.currentSwitch == "on") {
+                predFreezeSwitch.off();
+                logTrigger("PRE-FREEZE", false)
+            }
+            logTrigger("FREEZE", true);
+            // markTrigger("freeze") removed (Fix 3)
+            def reason = state.testFreeze ? "Manual Test" : (wetBulbFreeze ? "Wet Bulb ${state.wetBulb}°F <= 32°F" : "Score ${state.freezeScore}% >= ${frLim}%")
+            if (notifyFreezeEnabled && !manualFreezeActive) sendSmartNotification("❄️ FREEZE ALARM ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('freeze')}\nTime: ${new Date().format('h:mm a')}", "CRITICAL")
+        }
+    } else if (freezeClearCondition && isRunning("freeze")) { 
+        if (!manualFreezeActive) {
+            def timeActive = now() - (state.activeEventStart['freeze'] ?: 0)
+            if (timeActive > minRunTime) { 
+                freezeSwitch?.off();
+                logTrigger("FREEZE", false) 
+                markTrigger("freeze") // Added (Fix 3)
+                sendClear("FREEZE")
             }
         }
-    } else if (frostOffCondition) { 
-        def timeActive = now() - (state.activeEventStart['frost'] ?: 0)
-        if (frostSwitch && frostSwitch.currentSwitch == "on" && timeActive > minRunTime) 
-        { 
-            frostSwitch?.off();
-            logTrigger("FROST", false) 
-            if ((settings.notifyFrost ?: "Active Only") == "Active & All Clear") sendNotification("✅ FROST ALL CLEAR: Conditions stabilized below threshold.")
-        }
     }
 
-    // PREDICTIVE FROST LOGIC (FIXED NULL SAFETY)
-    def frostRisk = (state.forecast?.frost?.status == "RISK") || (state.forecast?.frost?.status == "FREEZE") || (state.forecast?.frost?.status == "PRE-ALERT")
-    boolean triggerPredFrost = state.testPredFrost || (frostRisk && !state.testFrost && state.frostScore >= pfrLim)
-    if (triggerPredFrost) {
-        if (canTrigger("pFrost") || (predFrostSwitch && predFrostSwitch.currentSwitch == "on")) {
-             if (predFrostSwitch && predFrostSwitch.currentSwitch != "on") { 
-                 predFrostSwitch?.on();
-                 logTrigger("PRE-FROST", true); markTrigger("pFrost") 
-                 def reason = state.testPredFrost ? "Manual Test" : "Score ${state.frostScore}% > ${pfrLim}% (Trend Falling)"
-                 if ((settings.notifyPredFrost ?: "Active Only") != "Disabled") sendNotification("🔮 PRE-FROST WATCH ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('frost')}\nTime: ${new Date().format('h:mm a')}")
-             }
+    // PRED-FREEZE
+    def freezeRisk = (state.forecast?.freeze?.status == "RISK") || (state.forecast?.freeze?.status == "FREEZE") || (state.forecast?.freeze?.status == "PRE-ALERT")
+    boolean sensorPredFreezeActive = state.testPredFreeze || (freezeRisk && !sensorFreezeActive && !state.testFreeze && state.freezeScore >= pfrLim)
+    boolean manualPredFreezeActive = (predFreezeSwitch && predFreezeSwitch.currentSwitch == "on")
+    
+    if ((sensorPredFreezeActive || manualPredFreezeActive) && !isRunning("pFreeze") && !isRunning("freeze")) {
+        if (canTrigger("pFreeze") || manualPredFreezeActive) {
+             predFreezeSwitch?.on();
+             logTrigger("PRE-FREEZE", true); markTrigger("pFreeze") 
+             def reason = state.testPredFreeze ? "Manual Test" : "Score ${state.freezeScore}% >= ${pfrLim}% (Trend Falling)"
+             if (notifyPredFreezeEnabled && !manualPredFreezeActive) sendSmartNotification("🔮 PRE-FREEZE WATCH ACTIVE\nWhy: ${reason}\nFactors: ${getActiveFactors('freeze')}\nTime: ${new Date().format('h:mm a')}", "WARNING")
         }
-    } else { 
-        if (predFrostSwitch && predFrostSwitch.currentSwitch == "on") { 
-            predFrostSwitch?.off();
-            logTrigger("PRE-FROST", false) 
-            if ((settings.notifyPredFrost ?: "Active Only") == "Active & All Clear") sendNotification("✅ PRE-FROST WATCH ENDED.")
+    } else if (!sensorPredFreezeActive && isRunning("pFreeze")) { 
+        if (!manualPredFreezeActive) {
+            predFreezeSwitch?.off();
+            logTrigger("PRE-FREEZE", false) 
+            if (notifyPredFreezeEnabled) sendSmartNotification("✅ PRE-FREEZE WATCH ENDED.", "INFO")
         }
     }
 }
@@ -1842,26 +1701,21 @@ def configurePage() {
         section("1. Primary Sensors") {
             input "weatherDevice", "capability.temperatureMeasurement", title: "🌡️ Weather Station", required: true, multiple: false
             input "extLightning", "capability.sensor", title: "⚡ Dedicated Lightning (Optional)", required: false
-            input "luxSensor", "capability.illuminanceMeasurement", title: "☀️ Lux (Optional)", required: false
+            input "luxSensor", "capability.illuminanceMeasurement", title: "☀️ Light/Lux Sensor (Optional)", required: false
         }
         section("2. Hazard Relays") {
-       
-             input "controlSwitch", "capability.switch", title: "🌪️ Storm Relay", required: false
+            input "controlSwitch", "capability.switch", title: "🌪️ Storm Relay", required: false
             input "floodSwitch", "capability.switch", title: "🌊 Flood Relay", required: false
-            input "frostSwitch", "capability.switch", title: "❄️ Frost Relay", required: false
+            input "freezeSwitch", "capability.switch", title: "❄️ Freeze Relay", required: false
         }
         section("3. Predictive Relays") {
             input "predStormSwitch", "capability.switch", title: "🔮 Pre-Storm", required: false
- 
-       
-             input "predFloodSwitch", "capability.switch", title: "🔮 Pre-Flood", required: false
-            input "predFrostSwitch", "capability.switch", title: "🔮 Pre-Frost", required: false
+            input "predFloodSwitch", "capability.switch", title: "🔮 Pre-Flood", required: false
+            input "predFreezeSwitch", "capability.switch", title: "🔮 Pre-Freeze", required: false
         }
         section("4. Controls") {
             input "masterEnable", "bool", title: "🟢 Enable System Logic?", defaultValue: true, required: true
-            
-            paragraph "<div style='font-size:0.8em; color:#555; background:#f5f5f5; padding:8px; border-radius:5px; margin-bottom:10px; border:1px solid #e0e0e0;'><b>ℹ️ TRIGGER DELAY EXPLAINED:</b><br>This creates a mandatory 'Cooldown Period' after an alert triggers. During this time, the specific alarm cannot trigger again, even if conditions remain critical.<br>• <b>Purpose:</b> Prevents 'flapping' (rapid on/off switching) and notification spam during lingering storms.<br>• <b>Recommendation:</b> Set to <b>30-60 Minutes</b> for stable operation.</div>"
-            
+            paragraph "<div style='font-size:0.8em; color:#555; background:#f5f5f5; padding:8px; border-radius:5px; margin-bottom:10px; border:1px solid #e0e0e0;'><b>ℹ️ TRIGGER DELAY EXPLAINED:</b><br>This setting controls how often Trajectory Labs wakes up to fetch sensor data and run physics calculations.<br>• <b>Purpose:</b> Prevents 'flapping' (rapid on/off switching) and notification spam during lingering storms.<br>• <b>Recommendation:</b> Set to <b>30-60 Minutes</b> for stable operation.</div>"
             input "triggerDelay", "number", title: "⏱️ Trigger Delay (Min)", defaultValue: 0, required: true
         }
     }
@@ -1869,40 +1723,28 @@ def configurePage() {
 
 def trustPage() {
     dynamicPage(name: "trustPage", title: "🛡️ PAI TRUST DIAGNOSTICS") {
-       section("🔎 Forensic Accuracy Calculation") {
+        section("🔎 Forensic Accuracy Calculation") {
             paragraph trustRow("STORM TRUST", state.paiStorm ?: 100, state.paiStormWhy ?: "Nominal", "#d32f2f")
             paragraph trustRow("FLOOD TRUST", state.paiFlood ?: 100, state.paiFloodWhy ?: "Nominal", "#1976d2")
-            paragraph trustRow("FROST TRUST", state.paiFrost ?: 100, state.paiFrostWhy ?: "Nominal", "#455a64")
+            paragraph trustRow("FREEZE TRUST", state.paiFreeze ?: 100, state.paiFreezeWhy ?: "Nominal", "#455a64")
         }
     }
 }
 
 def predictiveMathPage() {
     dynamicPage(name: "predictiveMathPage", title: "🧬 PREDICTIVE DNA: THE MATH") {
-       section("The Prediction Engine") {
-            paragraph """
-   
-         <div style='font-family:sans-serif; color:#444;'>
+        section("The Prediction Engine") {
+            paragraph """<div style='font-family:sans-serif; color:#444;'>
                 <h4 style='color:#0d47a1;'>1. Linear Trend Extrapolation</h4>
                 <p>The system predicts conditions <b>1 Hour</b> into the future by analyzing the Rate of Change (RoC) over the last 45-60 minutes.</p>
-                <div style='background:#e3f2fd; padding:10px; border-left:3px solid #0d47a1; font-family:monospace;'>
-                    P_future = Current_Val + (Rate * 1.0hr)
-                </div>
-                
+                <div style='background:#e3f2fd; padding:10px; border-left:3px solid #0d47a1; font-family:monospace;'>P_future = Current_Val + (Rate * 1.0hr)</div>
                 <h4 style='color:#0d47a1; margin-top:15px;'>2. Peak Latching (20m)</h4>
                 <p>To prevent rapid oscillation (flapping) during lulls in a storm, the prediction engine uses a "Latch" mechanism. It compares the current live reading against the <b>Maximum Value</b> recorded in the last 20 minutes.</p>
                 <p><i>If the live wind speed drops, the system holds onto the peak value for 20 minutes to keep alerts active during temporary calm periods.</i></p>
-
                 <h4 style='color:#0d47a1; margin-top:15px;'>3. Rate Calculation</h4>
                 <p>Rates are calculated by comparing the newest data point to the oldest data point available within a 1-hour buffer.</p>
-                <div style='background:#f5f5f5; padding:5px; font-size:0.9em;'>
-                • <b>Rising:</b> > +0.5 units/hr (Trend Up)<br>
-                • <b>Surging:</b> > +1.0 units/hr (Fast Rise)<br>
-                • <b>Crashing:</b> < -1.0 units/hr (Fast Drop)
-                </div>
-            </div>
-     
-       """
+                <div style='background:#f5f5f5; padding:5px; font-size:0.9em;'>• <b>Rising:</b> > +0.5 units/hr (Trend Up)<br>• <b>Surging:</b> > +1.0 units/hr (Fast Rise)<br>• <b>Crashing:</b> < -1.0 units/hr (Fast Drop)</div>
+            </div>"""
         }
     }
 }
@@ -1910,44 +1752,29 @@ def predictiveMathPage() {
 def forensicMathPage() {
     dynamicPage(name: "forensicMathPage", title: "🔬 FORENSIC DNA: THE MATH") {
         section("The Weighted Algorithm") {
-            paragraph """
-            <div style='font-family:sans-serif; color:#444;'>
+            paragraph """<div style='font-family:sans-serif; color:#444;'>
                 <h4 style='color:#2e7d32;'>1. Weighted Normalization</h4>
                 <p>The "Hazard Score" (0-100%) is not a simple average. It is a weighted sum of all <b>active</b> sensors.</p>
-                <div style='background:#e8f5e9; padding:10px; border-left:3px solid #2e7d32; font-family:monospace;'>
-                    Score = (Sum of Active Weights / Sum of Possible Weights) * 100
-                </div>
+                <div style='background:#e8f5e9; padding:10px; border-left:3px solid #2e7d32; font-family:monospace;'>Score = (Sum of Active Weights / Sum of Possible Weights) * 100</div>
                 <p>If a sensor is disabled or excluded, it is removed from the "Possible Weights" denominator, ensuring the score scales correctly to 100% using only the remaining sensors.</p>
-
-      
-          <h4 style='color:#2e7d32; margin-top:15px;'>2. Stale Data & Override Logic</h4>
+                <h4 style='color:#2e7d32; margin-top:15px;'>2. Stale Data & Override Logic</h4>
                 <p><b>Standard Safety:</b> If a sensor (e.g., Lightning) stops reporting for >1 hour, it is marked "Stale" and its weight is removed to prevent false positives.</p>
                 <p><b>Storm Override:</b> If the other sensors (Wind, Rain, Pressure) indicate a strong storm (Score > 40%), the system will <b>ignore the Stale flag</b> and use the last known lightning data. This ensures we don't lose critical alerts just because the lightning sensor went offline during a severe event.</p>
-
                 <h4 style='color:#2e7d32; margin-top:15px;'>3. DNA Composition</h4>
-                <div style='font-size:0.9em;'>
-                • <b>Storm DNA:</b> Kinetic (Wind/Gust) + Mass (Rain) + Electric (Lightning) + Potential (Dew Point/Lux)<br>
-                • <b>Flood DNA:</b> Hydraulics (Soil Saturation) + Runoff (Rain Rate)<br>
-                • <b>Frost DNA:</b> Thermodynamics (Temp/WetBulb) + Crystal Growth (Humidity) + Advection (Wind Dir)
-                </div>
-            </div>
-            """
+                <div style='font-size:0.9em;'>• <b>Storm DNA:</b> Kinetic (Wind/Gust) + Mass (Rain) + Electric (Lightning) + Potential (Dew Point/Lux)<br>• <b>Flood DNA:</b> Hydraulics (Soil Saturation) + Runoff (Rain Rate)<br>• <b>Freeze DNA:</b> Thermodynamics (Temp/WetBulb) + Crystal Growth (Humidity) + Advection (Wind Dir)</div>
+            </div>"""
         }
     }
 }
 
 def calibrationPage() {
     dynamicPage(name: "calibrationPage", title: "⚙️ SYSTEM CALIBRATION") {
-        section("⚠️ Warning") {
-            paragraph "Adjusting these settings changes the core physics engine."
-    
-    }
+        section("⚠️ Warning") { paragraph "Adjusting these settings changes the core physics engine." }
         section("🔬 Hazard DNA Modules") {
             href(name: "toStormConfig", page: "stormConfigPage", title: "🌪️ Storm Calibration", description: "Gusts, Rain, Lightning")
             href(name: "toFloodConfig", page: "floodConfigPage", title: "🌊 Flood Calibration", description: "Saturation, Runoff")
-            href(name: "toFrostConfig", page: "frostConfigPage", title: "❄️ Frost Calibration", description: "Freeze, Thermodynamics")
-            href(name: "toRegionConfig", page: "regionConfigPage", title: 
-"🇺🇸 Regional Physics", description: "Soil, Wind & Thermal Profiles")
+            href(name: "toFreezeConfig", page: "freezeConfigPage", title: "❄️ Freeze Calibration", description: "Freeze, Thermodynamics")
+            href(name: "toRegionConfig", page: "regionConfigPage", title: "🇺🇸 Regional Physics", description: "Soil, Wind & Thermal Profiles")
         }
         section("🎚️ Advanced Tuning") {
             href(name: "toWeightConfig", page: "weightConfigPage", title: "⚖️ DNA Weighting", description: "Algorithm Balance (100% Scale)")
@@ -1957,31 +1784,14 @@ def calibrationPage() {
 }
 
 def regionConfigPage() {
-    dynamicPage(name: "regionConfigPage", title: "🇺🇸 REGIONAL PHYSICS CALIBRATION") 
-{
+    dynamicPage(name: "regionConfigPage", title: "🇺🇸 REGIONAL PHYSICS CALIBRATION") {
         section() {
-            paragraph """
-            <div style='background:#f0f4c3; padding:15px; border-radius:5px; border-left:5px solid #c0ca33;'>
-                <h4 style='margin:0 0 10px 0; color:#827717;'>Why Regional Physics?</h4>
-                <p style='margin:0; font-size:0.9em; color:#555;'>
-                    A storm in Arizona behaves differently than a storm in Florida. This module calibrates the core physics engine to match your local climate profile:
-                    <ul style='margin-top:10px;'>
-                        <li><b>💧 Soil Hydraulics:</b> Adjusts flood saturation rates for clay vs. sand.</li>
-                        <li><b>☀️ Evaporation:</b> Modifies surface drying rates (Arid vs. Humid).</li>
- 
-                       <li><b>💨 Wind Profiles:</b> Tunes gust baselines for Coastal vs. Plains environments.</li>
-                        <li><b>❄️ Thermal Thresholds:</b> Calibrates freeze warnings for Northern vs. Southern infrastructure.</li>
-                    </ul>
-             
-   </p>
-            </div>
-            """
+            paragraph """<div style='background:#f0f4c3; padding:15px; border-radius:5px; border-left:5px solid #c0ca33;'><h4 style='margin:0 0 10px 0; color:#827717;'>Why Regional Physics?</h4><p style='margin:0; font-size:0.9em; color:#555;'>A storm in Arizona behaves differently than a storm in Florida. This module calibrates the core physics engine to match your local climate profile:<ul style='margin-top:10px;'><li><b>💧 Soil Hydraulics:</b> Adjusts flood saturation rates for clay vs. sand.</li><li><b>☀️ Evaporation:</b> Modifies surface drying rates (Arid vs. Humid).</li><li><b>💨 Wind Profiles:</b> Tunes gust baselines for Coastal vs. Plains environments.</li><li><b>❄️ Thermal Thresholds:</b> Calibrates freeze warnings for Northern vs. Southern infrastructure.</li></ul></p></div>"""
         }
         section("🌍 Location Profile") {
             input "enableAutoState", "bool", title: "Enable Regional Physics?", defaultValue: true, submitOnChange: true
             if (enableAutoState) {
-                input(name: "autoState", 
-type: "enum", title: "Select US State", options: getUSStates(), submitOnChange: true)
+                input(name: "autoState", type: "enum", title: "Select US State", options: getUSStates(), submitOnChange: true)
                 input(name: "mountLocation", type: "enum", title: "Mount Height", options: ["ground", "roof"], defaultValue: "roof", submitOnChange: true)
             }
         }
@@ -1996,7 +1806,7 @@ def stormConfigPage() {
             paragraph "<b>Sustained Wind:</b> Continuous force threshold."
             input "windVal", "number", title: "Sustained Wind (mph)", defaultValue: 20
             paragraph "<b>Vector Analysis:</b> Direction associated with storm fronts."
-             input "badWindStart", "number", title: "Wind Vector Start (°)", defaultValue: 225
+            input "badWindStart", "number", title: "Wind Vector Start (°)", defaultValue: 225
             input "badWindEnd", "number", title: "Wind Vector End (°)", defaultValue: 315
         }
         section("⚡ Electrical & Atmos") {
@@ -2008,19 +1818,17 @@ def stormConfigPage() {
             input "dewPointVal", "number", title: "Dew Point (°F)", defaultValue: 65
             paragraph "<b>Dark Sky:</b> Lux drop indicating cloud density."
             input "darkSkyDrop", "number", title: "Lux Drop Delta", defaultValue: 3000
-  
        }
         section("🌧️ Precip Load") {
             paragraph "<b>Rain Rate:</b> Intensity adding mass/weight to wind."
             input "stormRainThreshold", "decimal", title: "Rain Rate (in/hr)", defaultValue: 1.0
-        }
+       }
     }
 }
 
 def floodConfigPage() {
     dynamicPage(name: "floodConfigPage", title: "🌊 FLOOD CALIBRATION") {
         section("Hydraulics") {
-          
             paragraph "<b>Runoff Rate:</b> Rain volume exceeding surface drainage."
             input "floodRainRate", "decimal", title: "Runoff Rain Rate (in/hr)", defaultValue: 2.0
             paragraph "<b>Soil Saturation:</b> Calculated ground water capacity."
@@ -2029,20 +1837,15 @@ def floodConfigPage() {
     }
 }
 
-def frostConfigPage() {
-    dynamicPage(name: "frostConfigPage", title: "❄️ FROST CALIBRATION") {
-        
-section("Thermodynamics") {
-            paragraph "<b>Freeze Temp:</b> Boundary layer temp for frost formation."
-            input "frostTempThreshold", "number", title: "Freeze Temp (°F)", defaultValue: 37
-            paragraph "<b>Vapor Limit:</b> Humidity required for ice deposition."
-            input "frostHumThreshold", "number", title: "Frost Vapor Limit (%)", defaultValue: 70
-        
-    
-            // [NEW] Added Vapor Load Max Temp Threshold Setting
+def freezeConfigPage() {
+    dynamicPage(name: "freezeConfigPage", title: "❄️ FREEZE CALIBRATION") {
+        section("Thermodynamics") {
+            paragraph "<b>Freeze Temp:</b> Boundary layer temp for freezing."
+            input "freezeTempThreshold", "number", title: "Freeze Temp (°F)", defaultValue: 37
+            paragraph "<b>Vapor Limit:</b> Humidity required for ice deposition (Pipe risk)."
+            input "freezeHumThreshold", "number", title: "Freeze Vapor Limit (%)", defaultValue: 70
             paragraph "<b>Vapor Max Temp:</b> Temp ceiling to count Vapor Load as a risk factor."
-            input "frostVaporTempMax", "number", title: "Vapor Load Max Temp (°F)", defaultValue: 50, description: "Humidity only counts as risk below this temp"
-       
+            input "freezeVaporTempMax", "number", title: "Vapor Load Max Temp (°F)", defaultValue: 50, description: "Humidity only counts as risk below this temp"
             paragraph "<b>Thermal Crash:</b> Rapid temp drop rate (Radiative Cooling)."
             input "tempDropVal", "decimal", title: "Thermal Crash Rate (°F/hr)", defaultValue: 4.0
         }
@@ -2058,121 +1861,154 @@ def weightConfigPage() {
              input "weightGust", "number", title: "Weight: Gust (Def: 15)", required: false
              input "weightWind", "number", title: "Weight: Wind (Def: 5)", required: false
              input "weightStormRain", "number", title: "Weight: Storm Rain (Def: 10)", required: false
-      
              input "weightLight", "number", title: "Weight: Lightning (Def: 20)", required: false
              input "weightProx", "number", title: "Weight: Proximity (Def: 15)", required: false
              input "weightDew", "number", title: "Weight: Dew Point (Def: 5)", required: false
              input "weightDarkSky", "number", title: "Weight: Dark Sky (Def: 20)", required: false
-          
-   input "weightWindDir", "number", title: "Weight: Vector (Def: 10)", required: false
+             input "weightWindDir", "number", title: "Weight: Vector (Def: 10)", required: false
         }
         section("🌊 Flood Weights (Total 100)") {
              input "weightRunoff", "number", title: "Weight: Runoff (Def: 50)", required: false
              input "weightSat", "number", title: "Weight: Saturation (Def: 50)", required: false
         }
-        section("❄️ Frost Weights (Total 100)") {
-  
-       
-             input "weightFrostTemp", "number", title: "Weight: Frost Temp (Def: 40)", required: false
-             input "weightFrostHum", "number", title: "Weight: Frost Humid (Def: 30)", required: false
+        section("❄️ Freeze Weights (Total 100)") {
+             input "weightFreezeTemp", "number", title: "Weight: Freeze Temp (Def: 40)", required: false
+             input "weightFreezeHum", "number", title: "Weight: Freeze Vapor (Def: 30)", required: false
              input "weightColdAdv", "number", title: "Weight: Cold Advection (Def: 20)", required: false
              input "weightCrash", "number", title: "Weight: Temp Crash (Def: 10)", required: false
- 
-  
       }
     }
 }
 
 def systemConfigPage() {
-  
-   dynamicPage(name: "systemConfigPage", title: "⚙️ SYSTEM & ALERTS") {
+    dynamicPage(name: "systemConfigPage", title: "⚙️ SYSTEM & ALERTS") {
         section("⏱️ Sensor Logging") {
             paragraph """<div style='background:#e3f2fd; padding:10px; border-left:4px solid #1976d2; font-size:0.8em;'><b>ℹ️ DEEP DIVE: POLLING INTERVAL</b><br>This setting controls how often Trajectory Labs wakes up to fetch sensor data and run physics calculations.<br>• <b>1-5 Mins:</b> Maximum reaction speed for fast-moving storms. Higher battery drain.<br>• <b>15 Mins:</b> Balanced standard.<br>• <b>30-60 Mins:</b> Battery saving mode. Note: Fast flash floods may be detected late.</div>"""
             input "pollInterval", "enum", title: "Update Frequency (Minutes)", options: ["1","5","10","15","30","45","60"], defaultValue: "15", required: true
         }
-        
         section("⏱️ Trending Options") {
             paragraph "<b>Logic Definition:</b> This setting determines how far back the system looks to calculate the 'Rate of Change' (Slope).\n• <b>Short (1-15m):</b> Highly reactive, detects sudden spikes, but may trigger false positives.\n• <b>Long (30-60m):</b> Smoother, requires sustained pressure to trigger, filters out noise."
             input "trendTimeSelect", "enum", title: "⏱️ Trend Window (Minutes)", options: ["1","5","10","15","30","45","60"], defaultValue: "60", description: "Select time window for RoC calculations.", required: true
         }
-        
-        section("🔔 Notification Preferences") {
-            paragraph "Select which events send Push Notifications and when."
-          
-            def notifOptions = ["Disabled", "Active Only", "Active & All Clear"]
+        section("🔔 Notification Center", hideable: true, hidden: false) {
+            paragraph "<b>Global Options:</b>"
+            input "appLabelPrefix", "text", title: "App Prefix", defaultValue: "[TWL]", description: "Prefix for all notifications (e.g., [TWL])"
             
-            input "notifyStorm", "enum", title: "🌪️ Storm Alerts", options: notifOptions, defaultValue: "Active Only", required: true
-            paragraph "<div style='font-size:0.75em; color:#555; margin-left:20px; font-style:italic;'><b>Message Preview:</b><br>🚨 STORM ALARM ACTIVE<br>Why: Score 85% > 60%<br>Factors: Gusts, Rain, Lightning</div>"
-            
-            input "notifyFlood", "enum", title: "🌊 Flood Alerts", options: notifOptions, defaultValue: "Active Only", required: true
-            paragraph "<div style='font-size:0.75em; color:#555; margin-left:20px; font-style:italic;'><b>Message Preview:</b><br>🌊 FLOOD ALARM ACTIVE<br>Why: Score 75% > 70%<br>Factors: Runoff, Saturation</div>"
-            
-            input "notifyFrost", "enum", title: "❄️ Frost Alerts", options: notifOptions, defaultValue: "Active Only", required: true
-            paragraph "<div style='font-size:0.75em; color:#555; margin-left:20px; font-style:italic;'><b>Message Preview:</b><br>❄️ FROST ALARM ACTIVE<br>Why: Wet Bulb 31°F <= 32°F<br>Factors: Wet Bulb, Temp</div>"
-            
-            input "notifyPredStorm", "enum", title: "🔮 Pre-Storm Watch", options: notifOptions, defaultValue: "Active Only", required: true
-            paragraph "<div style='font-size:0.75em; color:#555; margin-left:20px; font-style:italic;'><b>Message Preview:</b><br>🔮 PRE-STORM WATCH ACTIVE<br>Why: Trend Rising > 50%<br>Factors: Gusts</div>"
-            
-            input "notifyPredFlood", "enum", title: "🔮 Pre-Flood Watch", options: notifOptions, defaultValue: "Active Only", required: true
-            input "notifyPredFrost", "enum", title: "🔮 Pre-Frost Watch", options: notifOptions, defaultValue: "Active Only", required: true
-        }
+            paragraph "<b>Clear/All-Clear Messages:</b>"
+            input "notifyClearEnabled", "bool", title: "Notify on All-Clear?", defaultValue: true
+            if(notifyClearEnabled) {
+                input "clearMsg", "text", title: "Clear Message", defaultValue: "All Clear: Conditions have stabilized."
+                input "testClearBtn", "button", title: "Test Clear Push", width: 4
+            }
 
-        section("🎚️ Trigger Sensitivity") {
-        
-            input "stormTriggerPct", "number", title: "🌪️ Storm Switch ON (%)", defaultValue: 60, range: "1..100"
-            input "floodTriggerPct", "number", title: "🌊 Flood Switch ON (%)", defaultValue: 70, range: "1..100"
-            input "frostTriggerPct", "number", title: "❄️ Frost Switch ON (%)", defaultValue: 60, range: "1..100"
-        
+            paragraph "<b>Alert Toggles & Tests:</b>"
+            input "notifyStormEnabled", "bool", title: "Enable Storm Alerts", defaultValue: true, submitOnChange: true
+            if (notifyStormEnabled) input "testStormNotif", "button", title: "Test Storm Push", width: 4
+            input "notifyFloodEnabled", "bool", title: "Enable Flood Alerts", defaultValue: true, submitOnChange: true
+            if (notifyFloodEnabled) input "testFloodNotif", "button", title: "Test Flood Push", width: 4
+            input "notifyFreezeEnabled", "bool", title: "Enable Freeze Alerts", defaultValue: true, submitOnChange: true
+            if (notifyFreezeEnabled) input "testFreezeNotif", "button", title: "Test Freeze Push", width: 4
+ 
+            paragraph "<hr>"
+            input "notifyPredStormEnabled", "bool", title: "Enable Pre-Storm (Watch)", defaultValue: true, submitOnChange: true
+            if (notifyPredStormEnabled) input "testPredStormNotif", "button", title: "Test Watch Push", width: 4
+            input "notifyPredFloodEnabled", "bool", title: "Enable Pre-Flood (Watch)", defaultValue: true, submitOnChange: true
+            if (notifyPredFloodEnabled) input "testPredFloodNotif", "button", title: "Test Watch Push", width: 4
+            input "notifyPredFreezeEnabled", "bool", title: "Enable Pre-Freeze (Watch)", defaultValue: true, submitOnChange: true
+            if (notifyPredFreezeEnabled) input "testPredFreezeNotif", "button", title: "Test Watch Push", width: 4
+        }
+        section("🌙 Sleep Mode / Quiet Time", hideable: true, hidden: true) {
+            paragraph "Suppress 'Pre-Alert' (Watch) notifications during specific times, modes, or switch events. <b>Critical Alarms will always ring through unless silenced below.</b>"
+            input "silenceCritical", "bool", title: "⚠️ Silence CRITICAL alarms during Quiet Time?", defaultValue: false, description: "DANGEROUS: If ON, Red Alarms will NOT sound during sleep mode."
+            input "sleepModeSwitch", "capability.switch", title: "Quiet Switch (If ON)", required: false
+            input "sleepModeModes", "mode", title: "Quiet Modes", multiple: true, required: false
+            input "sleepModeTimeStart", "time", title: "Quiet Start Time", required: false
+            input "sleepModeTimeEnd", "time", title: "Quiet End Time", required: false
+        }
+        section("🎚️ Trigger Sensitivity (>=%)") {
+            input "stormTriggerPct", "number", title: "🌪️ Storm Switch ON (>=%)", defaultValue: 60, range: "1..100"
+            input "floodTriggerPct", "number", title: "🌊 Flood Switch ON (>=%)", defaultValue: 70, range: "1..100"
+            input "freezeTriggerPct", "number", title: "❄️ Freeze Switch ON (>=%)", defaultValue: 60, range: "1..100"
             input "hysteresisVal", "number", title: "⏱️ Off Hysteresis (%)", defaultValue: 5, range: "1..20"
-     
-   }
-        section("🔮 Predictive Sensitivity") {
+        }
+        section("🔮 Predictive Sensitivity (>=%)") {
             paragraph "Thresholds for pre-emptive warnings (1 Hour Forecast)."
-            input "predStormTriggerPct", "number", title: "🔮 Pre-Storm Switch ON (%)", defaultValue: 50
-            input "predFloodTriggerPct", "number", title: "🔮 Pre-Flood Switch ON (%)", defaultValue: 50
-   
-             input "predFrostTriggerPct", "number", title: "🔮 Pre-Frost Switch ON (%)", defaultValue: 50
+            input "predStormTriggerPct", "number", title: "🔮 Pre-Storm Switch ON (>=%)", defaultValue: 50
+            input "predFloodTriggerPct", "number", title: "🔮 Pre-Flood Switch ON (>=%)", defaultValue: 50
+            input "predFreezeTriggerPct", "number", title: "🔮 Pre-Freeze Switch ON (>=%)", defaultValue: 50
             input "predGustVal", "number", title: "Override: Pred Gust (mph)", defaultValue: 45
-            input "predFrostTempVal", "number", title: "Override: Pred Frost (°F)", defaultValue: 32
+            input "predFreezeTempVal", "number", title: "Override: Pred Freeze (°F)", defaultValue: 32
             input "predTempDropVal", "number", title: "Override: Temp Drop (°F/hr)", defaultValue: 3.0
         }
-        section("🚫 Exclusions") 
-{
+        section("🚫 Exclusions") {
             input "excludeWind", "bool", title: "Exclude Wind?", defaultValue: false
             input "excludeRain", "bool", title: "Exclude Rain?", defaultValue: false
             input "excludeLux", "bool", title: "Exclude Lux?", defaultValue: false
             input "excludeLightning", "bool", title: "Exclude Lightning?", defaultValue: false
         }
         section("Hardware") {
-       
-             input "tempOffset", "decimal", title: "Temp Offset", defaultValue: 0.0
+            input "tempOffset", "decimal", title: "Temp Offset", defaultValue: 0.0
             input "notifDevice", "capability.notification", title: "Notify Devices", multiple: true
             input "showEmergProcs", "bool", title: "Show Emergency Protocols?", defaultValue: true
             input "pauseSwitch", "capability.switch", title: "⛔ External Pause Switch (Optional)", required: false, description: "If ON, system logic is halted."
+            input "dashLink", "text", title: "Dashboard Return URL", required: false, description: "Enter URL for 'Return to Dashboard' button"
+            input "dashLabel", "text", title: "Dashboard Button Label", defaultValue: "Return to Dashboard"
             input "hardResetBtn", "button", title: "💣 WIPE ALL DATA", width: 12
-       
- }
+        }
     }
 }
 
 def dataLogPage() {
     dynamicPage(name: "dataLogPage", title: "📜 DATA LOG INSPECTOR") {
-   
-     section("🌡️ THERMAL") {
+        section("🌡️ THERMAL") {
             paragraph generateLogTable("Temp History", state.histTemp, "°F")
             paragraph generateLogTable("Humidity History", state.histHum, "%")
+            paragraph generateLogTable("Dew Point", state.histDew, "°F")
+            paragraph generateLogTable("Wind Chill", state.histChill, "°F")
         }
         section("💨 KINETIC") {
             paragraph generateLogTable("Wind Speed", state.histWind, " mph")
-     
-       paragraph generateLogTable("Gusts", state.histGust, " mph")
+            paragraph generateLogTable("Gusts", state.histGust, " mph")
         }
-  
-       section("🌧️ PRECIP") {
-            paragraph generateLogTable("Rain Rate", state.histRain, " in/hr")
+        section("🌧️ PRECIP & SAT") {
+          paragraph generateLogTable("Rain Rate", state.histRain, " in/hr")
+          paragraph generateLogTable("Soil Saturation", state.histSat, "%")
+        }
+        section("⚡ ELECTRIC & LIGHT") {
+             paragraph generateLogTable("Lux History", state.histLux, " lx")
+             paragraph generateLogTable("Lightning", state.histLight, " strikes")
+        }
+        section("🌍 ENVIRONMENT & PWR") {
+             paragraph generateLogTable("Battery", state.histBat, "%")
+        }
+        section("📊 RISK SCORES (LIVE)") {
+             paragraph generateLogTable("Storm Score", state.histStormScore, "%")
+             paragraph generateLogTable("Flood Score", state.histFloodScore, "%")
+             paragraph generateLogTable("Freeze Score", state.histFreezeScore, "%")
+        }
+        section("🔮 PREDICTIVE CALCULATION BARS") {
+            def psLim = predStormTriggerPct ?: 50
+            def pfLim = predFloodTriggerPct ?: 50
+            def pfrLim = predFreezeTriggerPct ?: 50
+            def predStormScore = (state.currentScore ?: 0)
+            if (state.forecast?.storm?.status == "RISING" || state.forecast?.storm?.status == "HIGH") predStormScore += 60
+            predStormScore = Math.min(predStormScore, 100)
+            def predFloodScore = (state.floodScore ?: 0)
+            if (state.forecast?.flood?.status == "RISING" || state.forecast?.flood?.status == "HIGH") predFloodScore += 60
+            predFloodScore = Math.min(predFloodScore, 100)
+            def predFreezeScore = (state.freezeScore ?: 0)
+            if (state.forecast?.freeze?.status == "RISK" || state.forecast?.freeze?.status == "FREEZE") predFreezeScore += 60
+            predFreezeScore = Math.min(predFreezeScore, 100)
+
+            paragraph """<table style='width:100%; font-size:0.9em; border-collapse:collapse;'>
+                <tr style='background:#f5f5f5; border-bottom:1px solid #ddd;'><td style='padding:5px;'><b>METRIC</b></td><td style='padding:5px;'><b>VALUE</b></td><td style='padding:5px;'><b>TRIGGER</b></td></tr>
+                <tr><td style='padding:5px;'>🔮 STORM BAR</td><td style='padding:5px;'><b>${predStormScore}%</b></td><td style='padding:5px;'>&ge; ${psLim}%</td></tr>
+                <tr><td style='padding:5px;'>🔮 FLOOD BAR</td><td style='padding:5px;'><b>${predFloodScore}%</b></td><td style='padding:5px;'>&ge; ${pfLim}%</td></tr>
+                <tr><td style='padding:5px;'>🔮 FREEZE BAR</td><td style='padding:5px;'><b>${predFreezeScore}%</b></td><td style='padding:5px;'>&ge; ${pfrLim}%</td></tr>
+            </table>"""
         }
         section() {
             input "refreshLogs", "button", title: "🔄 REFRESH", width: 12, submitOnChange: true
-        }
+       }
     }
 }
